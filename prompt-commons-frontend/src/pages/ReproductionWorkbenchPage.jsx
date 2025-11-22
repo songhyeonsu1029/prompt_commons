@@ -1,7 +1,7 @@
 // src/pages/ReproductionWorkbenchPage.jsx
 
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft,
     ArrowRight,
@@ -22,8 +22,11 @@ import { useAuth } from '../contexts/AuthContext';
 const ReproductionWorkbenchPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const [experiment, setExperiment] = useState(null);
+    const [selectedVersion, setSelectedVersion] = useState(null);
+    const [versionData, setVersionData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -37,7 +40,13 @@ const ReproductionWorkbenchPage = () => {
         fetchExperimentById(id)
             .then(data => {
                 setExperiment(data);
-                setModifiedPrompt(data.prompt_text); 
+                // Get version from URL params or use active_version
+                const versionParam = searchParams.get('version') || data.active_version;
+                setSelectedVersion(versionParam);
+                // Find version data
+                const vData = data.versions.find(v => v.version_number === versionParam) || data.versions[0];
+                setVersionData(vData);
+                setModifiedPrompt(vData.prompt_text);
             })
             .catch(err => {
                 console.error("Failed to fetch experiment:", err);
@@ -46,7 +55,7 @@ const ReproductionWorkbenchPage = () => {
             .finally(() => {
                 setIsLoading(false);
             });
-    }, [id]);
+    }, [id, searchParams]);
 
     const handleNext = () => {
         if (currentStep < 4) setCurrentStep(currentStep + 1);
@@ -87,7 +96,7 @@ const ReproductionWorkbenchPage = () => {
             status: 'submitted'
         };
 
-        submitVerificationReport(id, report, user)
+        submitVerificationReport(id, report, user, selectedVersion)
             .then(() => {
                 toast.success('Verification report submitted!');
                 navigate(`/experiments/${id}`);
@@ -100,7 +109,7 @@ const ReproductionWorkbenchPage = () => {
 
     if (isLoading) return <div className="flex justify-center items-center h-screen">Loading workbench...</div>;
     if (error) return <div className="text-center py-20 text-red-500">Error: {error}</div>;
-    if (!experiment) return null;
+    if (!experiment || !versionData) return null;
 
     const steps = [
         { id: 1, label: 'Load', icon: FileText },
@@ -150,15 +159,15 @@ const ReproductionWorkbenchPage = () => {
                      <div className="mb-6">
                         <h3 className="font-semibold text-gray-900 mb-2">Original Prompt</h3>
                         <div className="bg-gray-50 p-4 rounded-md border border-gray-200 text-sm font-mono whitespace-pre-wrap text-gray-700">
-                            {experiment.prompt_text}
+                            {versionData.prompt_text}
                         </div>
                     </div>
 
                     <div className="mb-6">
                         <h3 className="font-semibold text-gray-900 mb-2">Instructions</h3>
                         <div className="prose prose-sm text-gray-600">
-                            {experiment.modification_guide ? (
-                                <p className="whitespace-pre-wrap">{experiment.modification_guide}</p>
+                            {versionData.modification_guide || experiment.modification_guide ? (
+                                <p className="whitespace-pre-wrap">{versionData.modification_guide || experiment.modification_guide}</p>
                             ) : (
                                 <>
                                     <p>1. Read the prompt carefully.</p>
@@ -175,7 +184,7 @@ const ReproductionWorkbenchPage = () => {
                         <div className="flex flex-wrap gap-2">
                             <Badge>{experiment.ai_model}</Badge>
                             <Badge>{experiment.task_type}</Badge>
-                            <Badge>{experiment.active_version}</Badge>
+                            <Badge variant="info">{selectedVersion}</Badge>
                         </div>
                     </div>
                 </div>

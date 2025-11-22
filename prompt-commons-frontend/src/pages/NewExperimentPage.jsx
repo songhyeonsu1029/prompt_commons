@@ -35,7 +35,7 @@ const NewExperimentPage = () => {
   const { register, handleSubmit, control, formState: { errors } } = useForm({
     defaultValues: {
       title: '',
-      ai_model: 'gpt-4',
+      ai_model: '',
       model_version: '',
       task_type: 'code_generation',
       prompt_text: '',
@@ -99,17 +99,14 @@ const NewExperimentPage = () => {
               <FormLabel htmlFor="ai_model" required>
                 AI Model
               </FormLabel>
-              <select
+              <input
+                type="text"
                 id="ai_model"
-                {...register('ai_model')}
+                {...register('ai_model', { required: 'AI Model is required.' })}
+                placeholder="e.g., GPT-4, Claude 3, Gemini Pro"
                 className={getInputClassName('ai_model')}
-              >
-                <option value="gpt-4">gpt-4</option>
-                <option value="gpt-3.5">gpt-3.5</option>
-                <option value="claude-3-sonnet">claude-3-sonnet</option>
-                <option value="claude-3-opus">claude-3-opus</option>
-                <option value="gemini-pro">gemini-pro</option>
-              </select>
+              />
+              {errors.ai_model && <FormError message={errors.ai_model.message} />}
             </div>
 
             {/* Model Version */}

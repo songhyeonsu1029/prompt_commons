@@ -17,7 +17,7 @@ import {
   Badge,
   DualCommentSystem
 } from '../components';
-import { fetchExperimentById, saveExperiment } from '../services/api';
+import { fetchExperimentById, saveExperiment, updateExperiment } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const ReliabilityCard = ({ stats }) => {
@@ -107,29 +107,32 @@ const ExperimentDetailPage = () => {
     }
   };
   
-  // Mock publishing a new version
+  // Publishing a new version
   const handlePublish = (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const newVersion = {
+    const newVersionData = {
       version_number: formData.get('version_number'),
       prompt_text: formData.get('prompt_text'),
+      prompt_description: formData.get('prompt_description'),
+      modification_guide: formData.get('modification_guide'),
       changelog: formData.get('changelog'),
-      tags: [...experiment.tags, 'New'], // Inherit tags + 'New'
-      created_at: new Date().toISOString(),
-      stats: { reproduction_rate: 0, reproduction_count: 0, views: 0 }
+      ai_model: formData.get('ai_model'),
+      model_version: formData.get('model_version'),
     };
 
-    const updatedExperiment = {
-      ...experiment,
-      active_version: newVersion.version_number,
-      versions: [...experiment.versions, newVersion]
-    };
-
-    setExperiment(updatedExperiment);
-    setSelectedVersion(newVersion.version_number);
-    setIsModalOpen(false);
-    setActiveTab('history');
+    updateExperiment(id, newVersionData)
+      .then((updatedExperiment) => {
+        toast.success('New version published!');
+        setExperiment(updatedExperiment);
+        setSelectedVersion(newVersionData.version_number);
+        setIsModalOpen(false);
+        setActiveTab('history');
+      })
+      .catch((err) => {
+        console.error('Failed to publish new version:', err);
+        toast.error('Failed to publish new version.');
+      });
   };
 
   // Logic to get data for the currently selected version
@@ -227,7 +230,7 @@ const ExperimentDetailPage = () => {
             <Button variant={isSaved ? "primary" : "outline"} onClick={handleSave}>
               <Bookmark className="w-4 h-4 mr-2" /> {isSaved ? 'Saved' : 'Save'}
             </Button>
-            <Button variant="primary" onClick={() => navigate(`/experiments/${id}/reproduce`)}>
+            <Button variant="primary" onClick={() => navigate(`/experiments/${id}/reproduce?version=${selectedVersion}`)}>
               <Beaker className="w-4 h-4 mr-2" /> Try Reproduction
             </Button>
             {/* Requirement: Only visible if user is author */}
@@ -252,10 +255,10 @@ const ExperimentDetailPage = () => {
           </div>
 
           {/* Prompt Description */}
-          {displayData && displayData.modification_guide && (
+          {displayData && displayData.prompt_description && (
             <div className="mb-6">
               <h2 className="text-xl font-bold text-gray-900 mb-2">Prompt Description</h2>
-              <div className="prose max-w-none text-gray-700">{displayData.modification_guide}</div>
+              <div className="prose max-w-none text-gray-700">{displayData.prompt_description}</div>
             </div>
           )}
 
@@ -346,13 +349,13 @@ const ExperimentDetailPage = () => {
           </div>
 
           {/* Dual Comment System (Replaces the old list) */}
-          {/* loadExperimentData가 이제 scope 내에 있으므로 정상 동작합니다 */}
+          {/* Comments are shared across all versions, reproductions are filtered by version */}
           {displayData && (
-            <DualCommentSystem 
+            <DualCommentSystem
               experimentId={displayData.id}
-              comments={displayData.comments || []} 
-              reproductions={displayData.reproductions || []}
-              onUpdate={loadExperimentData} 
+              comments={displayData.comments || []}
+              reproductions={(displayData.reproductions || []).filter(r => r.version_number === selectedVersion)}
+              onUpdate={loadExperimentData}
             />
           )}
         </main>
@@ -363,7 +366,7 @@ const ExperimentDetailPage = () => {
             <div>
               <h3 className="text-lg font-semibold mb-3 text-gray-800">💡 Similar Experiments</h3>
               <div className="space-y-3">
-                {experiment.similar.map((exp) => (
+                {(experiment.similar || []).map((exp) => (
                   <div
                     key={exp.id}
                     className="bg-white p-4 rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -396,7 +399,6 @@ const ExperimentDetailPage = () => {
             <form onSubmit={handlePublish}>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  {/* 2. Accessibility Fix: label htmlFor and input id added */}
                   <label htmlFor="source-version" className="block text-sm font-medium text-gray-700 mb-1">Source Version</label>
                   <input
                     id="source-version"
@@ -407,7 +409,6 @@ const ExperimentDetailPage = () => {
                   />
                 </div>
                 <div>
-                  {/* 2. Accessibility Fix: label htmlFor and input id added */}
                   <label htmlFor="version-number" className="block text-sm font-medium text-gray-700 mb-1">New Version Number</label>
                   <input
                     id="version-number"
@@ -420,8 +421,58 @@ const ExperimentDetailPage = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label htmlFor="ai-model" className="block text-sm font-medium text-gray-700 mb-1">AI Model</label>
+                  <input
+                    id="ai-model"
+                    name="ai_model"
+                    type="text"
+                    defaultValue={experiment.ai_model}
+                    placeholder="e.g., GPT-4, Claude 3"
+                    required
+                    className="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="model-version" className="block text-sm font-medium text-gray-700 mb-1">Model Version</label>
+                  <input
+                    id="model-version"
+                    name="model_version"
+                    type="text"
+                    defaultValue={experiment.model_version}
+                    placeholder="e.g., gpt-4-turbo-2024-04-09"
+                    required
+                    className="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
               <div className="mb-4">
-                 {/* 2. Accessibility Fix: label htmlFor and textarea id added */}
+                <label htmlFor="prompt-description" className="block text-sm font-medium text-gray-700 mb-1">Prompt Description</label>
+                <textarea
+                  id="prompt-description"
+                  name="prompt_description"
+                  defaultValue={displayData.prompt_description || ''}
+                  placeholder="Describe what this prompt does and its purpose..."
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="modification-guide" className="block text-sm font-medium text-gray-700 mb-1">Modification Guide</label>
+                <textarea
+                  id="modification-guide"
+                  name="modification_guide"
+                  defaultValue={displayData.modification_guide || ''}
+                  placeholder="Provide guidance on how to modify or customize this prompt..."
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div className="mb-4">
                 <label htmlFor="prompt-text" className="block text-sm font-medium text-gray-700 mb-1">Prompt Text</label>
                 <textarea
                   id="prompt-text"
@@ -434,7 +485,6 @@ const ExperimentDetailPage = () => {
               </div>
 
               <div className="mb-6">
-                 {/* 2. Accessibility Fix: label htmlFor and textarea id added */}
                 <label htmlFor="changelog" className="block text-sm font-medium text-gray-700 mb-1">Changelog</label>
                 <textarea
                   id="changelog"

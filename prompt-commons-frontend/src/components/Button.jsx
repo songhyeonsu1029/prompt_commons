@@ -12,6 +12,7 @@ const Button = forwardRef(
       className,
       isLoading = false,
       disabled = false,
+      asChild,
       ...props
     },
     ref

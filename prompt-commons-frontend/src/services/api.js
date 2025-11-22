@@ -134,6 +134,8 @@ export const createExperiment = (experimentData, user) => {
             {
                 version_number: 'v1.0',
                 prompt_text: experimentData.prompt_text,
+                prompt_description: experimentData.description,
+                modification_guide: experimentData.modification_guide,
                 changelog: 'Initial release',
                 tags: experimentData.tags ? experimentData.tags.split(',').map(t => t.trim()) : [],
                 created_at: new Date().toISOString(),
@@ -158,15 +160,13 @@ export const updateExperiment = (experimentId, newVersionData) => {
         return Promise.reject(new Error('Experiment not found'));
     }
 
-    const lastVersion = experiment.versions[experiment.versions.length - 1].version_number;
-    const [major, minor] = lastVersion.substring(1).split('.').map(Number);
-    const newVersionNumber = `v${major}.${minor + 1}`;
-
     const newVersion = {
-        version_number: newVersionNumber,
+        version_number: newVersionData.version_number,
         prompt_text: newVersionData.prompt_text,
+        prompt_description: newVersionData.prompt_description,
+        modification_guide: newVersionData.modification_guide,
         changelog: newVersionData.changelog,
-        tags: newVersionData.tags, // tags are already an array from react-hook-form
+        tags: newVersionData.tags || experiment.versions[experiment.versions.length - 1].tags,
         created_at: new Date().toISOString(),
         stats: {
             reproduction_rate: 0,
@@ -176,23 +176,35 @@ export const updateExperiment = (experimentId, newVersionData) => {
     };
 
     experiment.versions.push(newVersion);
-    experiment.active_version = newVersionNumber;
+    experiment.active_version = newVersion.version_number;
 
-    // A bit of a hack to simulate view count increase on update
-    const activeVersion = experiment.versions.find(v => v.version_number === experiment.active_version);
-    if(activeVersion) {
-        activeVersion.stats.views = (activeVersion.stats.views || 0) + 1;
+    // Update experiment-level fields if provided
+    if (newVersionData.ai_model) {
+        experiment.ai_model = newVersionData.ai_model;
+    }
+    if (newVersionData.model_version) {
+        experiment.model_version = newVersionData.model_version;
     }
 
+    // Return with comments, reproductions, similar (like fetchExperimentById)
+    const enrichedExperiment = enrichExperiment(experiment);
+    const reproductions = MOCK_REPRODUCTIONS_DB.filter(r => r.experiment_id === experiment.id);
+    const similar = MOCK_EXPERIMENTS_DB
+        .map(enrichExperiment)
+        .filter(e => e.id !== experiment.id && e.tags.some(t => enrichedExperiment.tags.includes(t)))
+        .slice(0, 3);
+    const comments = MOCK_COMMENTS_DB.filter(c => c.experiment_id === experiment.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    return simulateRequest(enrichExperiment(experiment));
+    return simulateRequest({ ...enrichedExperiment, reproductions, similar, comments });
 };
 
-export const submitVerificationReport = (experimentId, report, user) => {
-    console.log(`API: Submitting verification report for experiment: ${experimentId}`);
+export const submitVerificationReport = (experimentId, report, user, versionNumber) => {
+    console.log(`API: Submitting verification report for experiment: ${experimentId}, version: ${versionNumber}`);
     const newReproduction = {
         id: Date.now(),
         experiment_id: parseInt(experimentId),
+        version_number: versionNumber,
         user: user.username,
         success: report.score >= 80,
         note: report.feedback,
@@ -207,11 +219,14 @@ export const submitVerificationReport = (experimentId, report, user) => {
 
     const experiment = MOCK_EXPERIMENTS_DB.find(e => e.id === parseInt(experimentId));
     if (experiment) {
-        const activeVersion = experiment.versions.find(v => v.version_number === experiment.active_version) || experiment.versions[0];
-        activeVersion.stats.reproduction_count += 1;
-        const experimentReproductions = MOCK_REPRODUCTIONS_DB.filter(r => r.experiment_id === parseInt(experimentId));
-        const successCount = experimentReproductions.filter(r => r.success).length;
-        activeVersion.stats.reproduction_rate = Math.round((successCount / experimentReproductions.length) * 100);
+        const targetVersion = experiment.versions.find(v => v.version_number === versionNumber) || experiment.versions[0];
+        targetVersion.stats.reproduction_count += 1;
+        // Calculate reproduction rate for this specific version
+        const versionReproductions = MOCK_REPRODUCTIONS_DB.filter(
+            r => r.experiment_id === parseInt(experimentId) && r.version_number === versionNumber
+        );
+        const successCount = versionReproductions.filter(r => r.success).length;
+        targetVersion.stats.reproduction_rate = Math.round((successCount / versionReproductions.length) * 100);
     }
 
     return simulateRequest(newReproduction);
@@ -221,7 +236,21 @@ export const voteReproduction = (reproductionId, userId) => {
     console.log(`API: Voting on reproduction: ${reproductionId} by user: ${userId}`);
     const reproduction = MOCK_REPRODUCTIONS_DB.find(r => r.id === parseInt(reproductionId));
     if (reproduction) {
-        reproduction.upvotes = (reproduction.upvotes || 0) + 1;
+        // Initialize votedUsers array if it doesn't exist
+        if (!reproduction.votedUsers) {
+            reproduction.votedUsers = [];
+        }
+
+        // Toggle vote: if user already voted, remove vote; otherwise add vote
+        const userIndex = reproduction.votedUsers.indexOf(userId);
+        if (userIndex > -1) {
+            reproduction.votedUsers.splice(userIndex, 1);
+            reproduction.upvotes = Math.max(0, (reproduction.upvotes || 0) - 1);
+        } else {
+            reproduction.votedUsers.push(userId);
+            reproduction.upvotes = (reproduction.upvotes || 0) + 1;
+        }
+
         return simulateRequest(reproduction);
     }
     return Promise.reject(new Error('Reproduction not found'));
