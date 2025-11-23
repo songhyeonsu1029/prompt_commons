@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  BigInt               @id @default(autoincrement())
+  email               String               @unique(map: "email_UNIQUE") @map("email") @db.VarChar(255)
+  username            String               @unique(map: "username_UNIQUE") @map("username") @db.VarChar(255)
+  passwordHash        String               @map("password_hash") @db.VarChar(255)
+  bio                 String?              @db.Text
+  createdAt           DateTime?            @default(now()) @map("created_at") @db.DateTime(0)
+  comments            Comment[]
+  experiments         Experiment[]
+  reproductionReplies ReproductionReply[]
+  reproductionUpvotes ReproductionUpvote[]
+  reproductions       Reproduction[]
+  savedExperiments    SavedExperiment[]
+
+  @@map("users")
+}
+
+model SavedExperiment {
+  userId       BigInt     @map("user_id")
+  experimentId BigInt     @map("experiment_id")
+  savedAt      DateTime?  @default(now()) @map("saved_at") @db.DateTime(0)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_saved_users")
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_saved_experiments")
+
+  @@id([userId, experimentId])
+  @@index([experimentId], map: "fk_saved_experiments_idx")
+  @@map("saved_experiments")
+}
+
+model Experiment {
+  id              BigInt              @id @default(autoincrement())
+  authorId        BigInt              @map("author_id")
+  title           String              @db.VarChar(255)
+  taskType        String?             @map("task_type") @db.VarChar(100)
+  activeVersionId BigInt?             @map("active_version_id")
+  createdAt       DateTime?           @default(now()) @map("created_at") @db.DateTime(0)
+  comments        Comment[]
+  versions        ExperimentVersion[] @relation("ExperimentToVersions")
+  activeVersion   ExperimentVersion?  @relation("ActiveVersionRelation", fields: [activeVersionId], references: [id], onUpdate: NoAction, map: "fk_experiments_active_version")
+  author          User                @relation(fields: [authorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_experiments_users")
+  reproductions   Reproduction[]
+  savedBy         SavedExperiment[]
+
+  @@index([authorId], map: "fk_experiments_users_idx")
+  @@index([activeVersionId], map: "fk_experiments_active_version")
+  @@map("experiments")
+}
+
+model ExperimentVersion {
+  id                  BigInt          @id @default(autoincrement())
+  experimentId        BigInt          @map("experiment_id")
+  versionNumber       String          @map("version_number") @db.VarChar(50)
+  promptText          String          @map("prompt_text") @db.Text
+  aiModel             String?         @map("ai_model") @db.VarChar(100)
+  modelVersion        String?         @map("model_version") @db.VarChar(100)
+  promptDescription   String?         @map("prompt_description") @db.Text
+  modificationGuide   String?         @map("modification_guide") @db.Text
+  changelog           String?         @db.Text
+  reproductionRate    Int?            @default(0) @map("reproduction_rate")
+  reproductionCount   Int             @default(0) @map("reproduction_count")
+  viewCount           Int             @default(0) @map("view_count")
+  createdAt           DateTime?       @default(now()) @map("created_at") @db.DateTime(0)
+  tags                ExperimentTag[]
+  experiment          Experiment      @relation("ExperimentToVersions", fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_versions_experiments")
+  activeInExperiments Experiment[]    @relation("ActiveVersionRelation")
+  reproductions       Reproduction[]
+
+  @@index([experimentId], map: "fk_versions_experiments_idx")
+  @@map("experiment_versions")
+}
+
+model ExperimentTag {
+  id        BigInt            @id @default(autoincrement())
+  versionId BigInt            @map("version_id")
+  tagName   String            @map("tag_name") @db.VarChar(100)
+  version   ExperimentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tags_versions")
+
+  @@index([versionId], map: "fk_tags_versions_idx")
+  @@map("experiment_tags")
+}
+
+model Reproduction {
+  id             BigInt               @id @default(autoincrement())
+  experimentId   BigInt               @map("experiment_id")
+  versionId      BigInt               @map("version_id")
+  verifierId     BigInt               @map("verifier_id")
+  modifiedPrompt String?              @map("modified_prompt") @db.Text
+  score          Int?
+  success        Boolean?             @default(false)
+  note           String?              @db.Text
+  createdAt      DateTime?            @default(now()) @map("created_at") @db.DateTime(0)
+  replies        ReproductionReply[]
+  upvotes        ReproductionUpvote[]
+  experiment     Experiment           @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_reproductions_experiments")
+  verifier       User                 @relation(fields: [verifierId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_reproductions_users")
+  version        ExperimentVersion    @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_reproductions_versions")
+
+  @@index([experimentId], map: "fk_reproductions_experiments_idx")
+  @@index([versionId], map: "fk_reproductions_versions_idx")
+  @@index([verifierId], map: "fk_reproductions_users_idx")
+  @@map("reproductions")
+}
+
+model Comment {
+  id           BigInt     @id @default(autoincrement())
+  experimentId BigInt     @map("experiment_id")
+  authorId     BigInt     @map("author_id")
+  content      String     @db.Text
+  createdAt    DateTime?  @default(now()) @map("created_at") @db.DateTime(0)
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_comments_experiments")
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_comments_users")
+
+  @@index([experimentId], map: "fk_comments_experiments_idx")
+  @@index([authorId], map: "fk_comments_users_idx")
+  @@map("comments")
+}
+
+model ReproductionReply {
+  id             BigInt       @id @default(autoincrement())
+  reproductionId BigInt       @map("reproduction_id")
+  authorId       BigInt       @map("author_id")
+  content        String       @db.Text
+  createdAt      DateTime?    @default(now()) @map("created_at") @db.DateTime(0)
+  reproduction   Reproduction @relation(fields: [reproductionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_replies_reproductions")
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_replies_users")
+
+  @@index([reproductionId], map: "fk_replies_reproductions_idx")
+  @@index([authorId], map: "fk_replies_users_idx")
+  @@map("reproduction_replies")
+}
+
+model ReproductionUpvote {
+  reproductionId BigInt       @map("reproduction_id")
+  userId         BigInt       @map("user_id")
+  reproduction   Reproduction @relation(fields: [reproductionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_upvotes_reproductions")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_upvotes_users")
+
+  @@id([reproductionId, userId])
+  @@index([userId], map: "fk_upvotes_users_idx")
+  @@map("reproduction_upvotes")
+}
