@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   Eye,
   Bookmark,
@@ -51,16 +51,18 @@ const ReliabilityCard = ({ stats }) => {
 const ExperimentDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, isAuthenticated } = useAuth();
   const [experiment, setExperiment] = useState(null);
   const [selectedVersion, setSelectedVersion] = useState(null);
-  
-  const [activeTab, setActiveTab] = useState(null); 
+
+  const [activeTab, setActiveTab] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [hasScrolled, setHasScrolled] = useState(false);
 
   // 1. loadExperimentData를 useEffect 밖으로 이동하고 useCallback으로 감쌈
   const loadExperimentData = useCallback(() => {
@@ -83,6 +85,38 @@ const ExperimentDetailPage = () => {
   useEffect(() => {
     loadExperimentData();
   }, [loadExperimentData]);
+
+  // URL 파라미터에서 버전 설정
+  useEffect(() => {
+    const versionParam = searchParams.get('version');
+    if (versionParam && experiment?.versions) {
+      const versionExists = experiment.versions.some(v => v.version_number === versionParam);
+      if (versionExists) {
+        setSelectedVersion(versionParam);
+      }
+    }
+  }, [searchParams, experiment]);
+
+  // scrollTo 파라미터 처리 - reproduction으로 자동 스크롤
+  useEffect(() => {
+    const scrollTo = searchParams.get('scrollTo');
+    if (scrollTo && !isLoading && experiment && !hasScrolled) {
+      // 약간의 지연 후 스크롤 (DOM 렌더링 대기)
+      const timer = setTimeout(() => {
+        const element = document.getElementById(scrollTo);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 하이라이트 효과
+          element.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+          setTimeout(() => {
+            element.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+          }, 3000);
+          setHasScrolled(true);
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, isLoading, experiment, hasScrolled]);
 
   const handleCopy = () => {
     if (!displayData) return;
@@ -356,6 +390,7 @@ const ExperimentDetailPage = () => {
               comments={displayData.comments || []}
               reproductions={(displayData.reproductions || []).filter(r => r.version_number === selectedVersion)}
               onUpdate={loadExperimentData}
+              defaultTab={searchParams.get('scrollTo')?.startsWith('reproduction-') ? 'verification' : 'discussion'}
             />
           )}
         </main>

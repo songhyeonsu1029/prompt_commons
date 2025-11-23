@@ -6,8 +6,8 @@ import { postComment, voteReproduction, replyToReproduction } from '../services/
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], onUpdate }) => {
-    const [activeTab, setActiveTab] = useState('discussion'); // 'discussion' | 'verification'
+const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], onUpdate, defaultTab = 'discussion' }) => {
+    const [activeTab, setActiveTab] = useState(defaultTab); // 'discussion' | 'verification'
     const { user } = useAuth();
     const [newComment, setNewComment] = useState('');
     const [replyText, setReplyText] = useState('');
@@ -137,7 +137,7 @@ const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], on
                             </div>
                         ) : (
                             reproductions.map((rep) => (
-                                <div key={rep.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                                <div key={rep.id} id={`reproduction-${rep.id}`} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                                     {/* Card Header */}
                                     <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                                         <div className="flex items-center gap-2">
@@ -228,7 +228,8 @@ DualCommentSystem.propTypes = {
     experimentId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
     comments: PropTypes.array,
     reproductions: PropTypes.array,
-    onUpdate: PropTypes.func.isRequired
+    onUpdate: PropTypes.func.isRequired,
+    defaultTab: PropTypes.oneOf(['discussion', 'verification'])
 };
 
 export default DualCommentSystem;

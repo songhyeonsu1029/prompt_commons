@@ -1,5 +1,34 @@
 // src/services/api.js
 
+// ==========================================
+// API Configuration
+// ==========================================
+const API_BASE_URL = 'http://localhost:3000/api';
+const USE_BACKEND = true; // true: 백엔드 API 사용, false: Mock API 사용
+
+// API 요청 헬퍼 함수
+const apiRequest = async (endpoint, options = {}) => {
+  const token = localStorage.getItem('token');
+
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...options.headers,
+    },
+    ...options,
+  };
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+};
+
 const LATENCY = 300; // ms
 
 // --- MOCK DATABASE ---
@@ -75,8 +104,16 @@ const simulateRequest = (data, success = true) => new Promise((resolve, reject) 
     }, LATENCY);
 });
 
-export const fetchExperimentById = (id, username) => {
+export const fetchExperimentById = (id, username, version = null) => {
     console.log(`API: Fetching experiment with id: ${id}` + (username ? ` for user: ${username}`: ''));
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        const queryParams = version ? `?version=${version}` : '';
+        return apiRequest(`/experiments/${id}${queryParams}`);
+    }
+
+    // Mock API (fallback)
     const experimentRaw = MOCK_EXPERIMENTS_DB.find(exp => exp.id === parseInt(id));
     if (experimentRaw) {
         const experiment = enrichExperiment(experimentRaw);
@@ -105,6 +142,16 @@ export const postComment = (experiment_id, author, text) => {
     if (!author || !text) {
         return Promise.reject(new Error('Author and text are required.'));
     }
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/${experiment_id}/comments`, {
+            method: 'POST',
+            body: JSON.stringify({ text }),
+        });
+    }
+
+    // Mock API (fallback)
     const newComment = {
         id: Date.now(),
         experiment_id: parseInt(experiment_id),
@@ -116,8 +163,37 @@ export const postComment = (experiment_id, author, text) => {
     return simulateRequest(newComment);
 };
 
+export const deleteComment = (experimentId, commentId) => {
+    console.log(`API: Deleting comment ${commentId} from experiment ${experimentId}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/${experimentId}/comments/${commentId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // Mock API (fallback)
+    const index = MOCK_COMMENTS_DB.findIndex(c => c.id === parseInt(commentId));
+    if (index > -1) {
+        MOCK_COMMENTS_DB.splice(index, 1);
+        return simulateRequest({ message: 'Comment deleted' });
+    }
+    return Promise.reject(new Error('Comment not found'));
+};
+
 export const createExperiment = (experimentData, user) => {
     console.log(`API: Creating new experiment by user: ${user.username}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest('/experiments', {
+            method: 'POST',
+            body: JSON.stringify(experimentData),
+        });
+    }
+
+    // Mock API (fallback)
     const newId = MOCK_EXPERIMENTS_DB.length > 0 ? Math.max(...MOCK_EXPERIMENTS_DB.map(e => e.id)) + 1 : 1;
 
     const newExperiment = {
@@ -154,6 +230,16 @@ export const createExperiment = (experimentData, user) => {
 
 export const updateExperiment = (experimentId, newVersionData) => {
     console.log(`API: Updating experiment with id: ${experimentId}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/${experimentId}/versions`, {
+            method: 'POST',
+            body: JSON.stringify(newVersionData),
+        });
+    }
+
+    // Mock API (fallback)
     const experiment = MOCK_EXPERIMENTS_DB.find(exp => exp.id === parseInt(experimentId));
 
     if (!experiment) {
@@ -201,6 +287,21 @@ export const updateExperiment = (experimentId, newVersionData) => {
 
 export const submitVerificationReport = (experimentId, report, user, versionNumber) => {
     console.log(`API: Submitting verification report for experiment: ${experimentId}, version: ${versionNumber}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/${experimentId}/reproductions`, {
+            method: 'POST',
+            body: JSON.stringify({
+                version_number: versionNumber,
+                modifiedContent: report.modifiedContent,
+                score: report.score,
+                feedback: report.feedback
+            }),
+        });
+    }
+
+    // Mock API (fallback)
     const newReproduction = {
         id: Date.now(),
         experiment_id: parseInt(experimentId),
@@ -234,6 +335,15 @@ export const submitVerificationReport = (experimentId, report, user, versionNumb
 
 export const voteReproduction = (reproductionId, userId) => {
     console.log(`API: Voting on reproduction: ${reproductionId} by user: ${userId}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/reproductions/${reproductionId}/vote`, {
+            method: 'POST',
+        });
+    }
+
+    // Mock API (fallback)
     const reproduction = MOCK_REPRODUCTIONS_DB.find(r => r.id === parseInt(reproductionId));
     if (reproduction) {
         // Initialize votedUsers array if it doesn't exist
@@ -258,6 +368,16 @@ export const voteReproduction = (reproductionId, userId) => {
 
 export const replyToReproduction = (reproductionId, user, text) => {
     console.log(`API: Replying to reproduction: ${reproductionId}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/reproductions/${reproductionId}/replies`, {
+            method: 'POST',
+            body: JSON.stringify({ content: text }),
+        });
+    }
+
+    // Mock API (fallback)
     const reproduction = MOCK_REPRODUCTIONS_DB.find(r => r.id === parseInt(reproductionId));
     if (reproduction) {
         const newReply = {
@@ -275,6 +395,13 @@ export const replyToReproduction = (reproductionId, user, text) => {
 
 export const fetchExperiments = ({ page = 1, limit = 6 } = {}) => {
     console.log(`API: Fetching experiments for page: ${page}, limit: ${limit}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments?page=${page}&limit=${limit}`);
+    }
+
+    // Mock API (fallback)
     const enrichedDB = MOCK_EXPERIMENTS_DB.map(enrichExperiment);
     const sorted = [...enrichedDB].sort((a, b) => b.stats.views - a.stats.views);
     const totalPages = Math.ceil(sorted.length / limit);
@@ -300,6 +427,15 @@ export const searchExperiments = ({ query = '', model = 'All', rate = 'All', pag
 
 export const saveExperiment = (experimentId, username) => {
     console.log(`API: User ${username} is saving/unsaving experiment ${experimentId}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/${experimentId}/save`, {
+            method: 'POST',
+        });
+    }
+
+    // Mock API (fallback)
     const user = Object.values(MOCK_USERS_DB).find(u => u.username === username);
 
     if (!user) {
@@ -333,19 +469,77 @@ export const saveExperiment = (experimentId, username) => {
 
 export const fetchMyPageData = (username) => {
     console.log(`API: Fetching MyPage data for user: ${username}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest('/users/me');
+    }
+
+    // Mock API (fallback)
     const userProfile = MOCK_USERS_DB[username];
     if (!userProfile) return Promise.reject(new Error('User not found'));
     const savedPrompts = MOCK_EXPERIMENTS_DB.filter(exp => userProfile.saved?.includes(exp.id)).map(enrichExperiment);
     const reproductionHistory = MOCK_REPRODUCTIONS_DB.map(rep => ({ ...rep, target_title: MOCK_EXPERIMENTS_DB.find(e => e.id === rep.experiment_id)?.title || 'Unknown' }));
     const myExperiments = MOCK_EXPERIMENTS_DB.filter(exp => exp.author.username === username).map(enrichExperiment);
     return simulateRequest({ userProfile, savedPrompts, reproductionHistory, myExperiments });
-}
+};
 
 export const getUserByUsername = (username) => {
     console.log(`API: Fetching user profile for: ${username}`);
+
+    // 백엔드 API 사용
+    if (USE_BACKEND) {
+        return apiRequest(`/users/${username}`);
+    }
+
+    // Mock API (fallback)
     const profile = Object.values(MOCK_USERS_DB).find(u => u.username === username);
     if (!profile) return Promise.reject(new Error('User not found'));
 
     const experiments = MOCK_EXPERIMENTS_DB.filter(e => e.author.username === username).map(enrichExperiment);
     return simulateRequest({ profile, experiments });
-}
+};
+
+export const updateUserProfile = (data) => {
+    console.log(`API: Updating user profile`);
+
+    if (USE_BACKEND) {
+        return apiRequest('/users/me', {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    return Promise.reject(new Error('Not implemented in mock'));
+};
+
+export const changePassword = (currentPassword, newPassword) => {
+    console.log(`API: Changing password`);
+
+    if (USE_BACKEND) {
+        return apiRequest('/users/me/password', {
+            method: 'PUT',
+            body: JSON.stringify({ currentPassword, newPassword }),
+        });
+    }
+
+    return Promise.reject(new Error('Not implemented in mock'));
+};
+
+export const deleteExperiment = (experimentId) => {
+    console.log(`API: Deleting experiment ${experimentId}`);
+
+    if (USE_BACKEND) {
+        return apiRequest(`/experiments/${experimentId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // Mock API (fallback)
+    const index = MOCK_EXPERIMENTS_DB.findIndex(e => e.id === parseInt(experimentId));
+    if (index > -1) {
+        MOCK_EXPERIMENTS_DB.splice(index, 1);
+        return simulateRequest({ message: 'Experiment deleted' });
+    }
+    return Promise.reject(new Error('Experiment not found'));
+};

@@ -64,25 +64,58 @@ const MyPage = () => {
       case 'reproductions':
         return (
           <div className="space-y-4">
-            {myData.reproductionHistory.map(rep => (
-              <div key={rep.id} className="p-4 border-b border-gray-200">
-                <div className="flex items-start gap-4">
-                  {rep.success ? <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-1" /> : <XCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-1" />}
-                  <div className="flex-grow">
-                    <p className="text-gray-700">
-                      Tried reproducing <Link to={`/experiments/${rep.experiment_id}`} className="font-semibold text-blue-600 hover:underline">{rep.target_title}</Link>
-                    </p>
-                    <p className="text-sm text-gray-500 mt-2 italic">"{rep.note}"</p>
+            {myData.reproductionHistory.length > 0 ? (
+              myData.reproductionHistory.map(rep => (
+                <div key={rep.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                  {/* Header */}
+                  <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <div className="flex items-center gap-3">
+                      {rep.success ? <CheckCircle className="w-5 h-5 text-green-500" /> : <XCircle className="w-5 h-5 text-red-500" />}
+                      <Link to={`/experiments/${rep.experiment_id}`} className="font-semibold text-blue-600 hover:underline">
+                        {rep.target_title}
+                      </Link>
+                      <span className="text-xs text-gray-400 bg-gray-200 px-2 py-0.5 rounded">{rep.version_number}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm font-medium ${rep.score >= 80 ? 'text-green-600' : rep.score >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        Score: {rep.score}/100
+                      </span>
+                      <span className="text-sm text-gray-500">{rep.date}</span>
+                    </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm text-gray-500 mb-2">{rep.date}</p>
+
+                  {/* Prompt Preview */}
+                  {rep.prompt_text && (
+                    <div className="px-4 py-3 bg-gray-900">
+                      <p className="text-xs text-gray-400 mb-1">Prompt Preview</p>
+                      <pre className="font-mono text-gray-100 text-sm line-clamp-3 whitespace-pre-wrap">
+                        {rep.prompt_text}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Note */}
+                  {rep.note && (
+                    <div className="px-4 py-3 border-t border-gray-100">
+                      <p className="text-sm text-gray-700 italic">"{rep.note}"</p>
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
                     <Button asChild variant="outline" size="sm">
-                      <Link to={`/experiments/${rep.experiment_id}`}>View Details</Link>
+                      <Link to={`/experiments/${rep.experiment_id}?version=${rep.version_number}&scrollTo=reproduction-${rep.id}`}>
+                        View Details
+                      </Link>
                     </Button>
                   </div>
                 </div>
+              ))
+            ) : (
+              <div className="text-center py-10 text-gray-500">
+                <p>You haven't made any reproduction attempts yet.</p>
               </div>
-            ))}
+            )}
           </div>
         );
       default:

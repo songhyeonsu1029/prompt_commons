@@ -5,14 +5,20 @@ import { useAuth } from '../contexts/AuthContext';
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({ email: '', password: '' });
+  const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // In a real app, you'd validate credentials against a backend first.
-    // Here, we just pass the form data to the mock login handler.
-    console.log('Attempting to log in with:', formData);
-    login(formData);
+    setIsLoading(true);
+    try {
+      await login(formData);
+    } catch (error) {
+      // Error is already handled in AuthContext
+      console.error('Login failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -56,8 +62,8 @@ const LoginPage = () => {
             />
           </div>
           <div>
-            <Button type="submit" className="w-full">
-              Log In
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? 'Logging in...' : 'Log In'}
             </Button>
           </div>
         </form>

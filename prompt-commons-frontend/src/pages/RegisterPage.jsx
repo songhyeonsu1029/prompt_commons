@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Button } from '../components';
+import { useAuth } from '../contexts/AuthContext';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -10,14 +11,15 @@ const RegisterPage = () => {
     password: '',
     passwordConfirm: '',
   });
-  const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+  const { register } = useAuth();
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     // Validation
@@ -30,11 +32,15 @@ const RegisterPage = () => {
       return;
     }
 
-    // Mock API Call
-    console.log('Registering:', formData);
-
-    toast.success('Registration Successful! Please log in.');
-    navigate('/login');
+    setIsLoading(true);
+    try {
+      await register(formData);
+    } catch (error) {
+      // Error is already handled in AuthContext
+      console.error('Registration failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -100,8 +106,8 @@ const RegisterPage = () => {
           </div>
 
           <div>
-            <Button type="submit" className="w-full mt-4">
-              Sign Up
+            <Button type="submit" className="w-full mt-4" disabled={isLoading}>
+              {isLoading ? 'Signing up...' : 'Sign Up'}
             </Button>
           </div>
         </form>

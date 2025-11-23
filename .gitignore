@@ -28,4 +28,4 @@ dist-ssr
 *.sln
 *.sw?
 .claude/
-.test-api.mjs
+test-api.mjs
