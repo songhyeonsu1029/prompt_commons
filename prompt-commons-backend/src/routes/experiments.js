@@ -82,6 +82,112 @@ router.get('/', async (req, res) => {
 });
 
 // ==========================================
+// GET /api/experiments/search - 실험 검색
+// ==========================================
+router.get('/search', asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const query = req.query.q || '';
+  const model = req.query.model;
+  const rate = parseInt(req.query.rate) || 0;
+
+  // 검색 조건 구성
+  const whereConditions = {
+    AND: []
+  };
+
+  // 텍스트 검색 (제목 또는 프롬프트 텍스트)
+  if (query) {
+    whereConditions.AND.push({
+      OR: [
+        { title: { contains: query } },
+        {
+          versions: {
+            some: {
+              promptText: { contains: query }
+            }
+          }
+        }
+      ]
+    });
+  }
+
+  // AI 모델 필터
+  if (model && model !== 'All') {
+    whereConditions.AND.push({
+      activeVersion: {
+        aiModel: { contains: model }
+      }
+    });
+  }
+
+  // 재현율 필터
+  if (rate > 0) {
+    whereConditions.AND.push({
+      activeVersion: {
+        reproductionRate: { gte: rate }
+      }
+    });
+  }
+
+  // AND 조건이 비어있으면 제거
+  const finalWhere = whereConditions.AND.length > 0 ? whereConditions : {};
+
+  // 검색 실행
+  const experiments = await prisma.experiment.findMany({
+    where: finalWhere,
+    skip,
+    take: limit,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      author: { select: { username: true } },
+      activeVersion: {
+        select: {
+          versionNumber: true,
+          aiModel: true,
+          promptText: true,
+          reproductionRate: true,
+          reproductionCount: true,
+          viewCount: true,
+          tags: { select: { tagName: true } }
+        }
+      }
+    }
+  });
+
+  // 전체 개수
+  const totalCount = await prisma.experiment.count({ where: finalWhere });
+
+  // 데이터 가공
+  const formattedResults = experiments.map(exp => {
+    const version = exp.activeVersion || {};
+    return {
+      id: exp.id.toString(),
+      title: exp.title,
+      author: { username: exp.author.username },
+      ai_model: version.aiModel || 'Unknown',
+      prompt_text: version.promptText || '',
+      reproduction_rate: version.reproductionRate || 0,
+      reproduction_count: version.reproductionCount || 0,
+      views: version.viewCount || 0,
+      tags: version.tags?.map(t => t.tagName) || [],
+      created_at: exp.createdAt.toISOString()
+    };
+  });
+
+  res.json({
+    data: formattedResults,
+    pagination: {
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit),
+      totalResults: totalCount
+    }
+  });
+}));
+
+// ==========================================
 // POST /api/experiments - 새 실험 생성
 // ==========================================
 router.post('/', authMiddleware, asyncHandler(async (req, res) => {

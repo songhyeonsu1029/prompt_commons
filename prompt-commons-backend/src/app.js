@@ -4,6 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 const authRoutes = require('./routes/auth');
 const experimentRoutes = require('./routes/experiments');
 const userRoutes = require('./routes/users');
+const statsRoutes = require('./routes/stats');
 const { notFoundHandler, errorHandler } = require('./middlewares/errorHandler');
 require('dotenv').config();
 
@@ -51,6 +52,7 @@ app.get('/api/test-db', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/experiments', experimentRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/stats', statsRoutes);
 
 // 에러 핸들링 미들웨어 (라우트 등록 후 마지막에 위치해야 함)
 app.use(notFoundHandler); // 404 처리
