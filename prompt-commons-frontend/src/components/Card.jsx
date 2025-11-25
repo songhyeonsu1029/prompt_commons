@@ -94,9 +94,9 @@ export default function Card({ experiment, onClick, className }) {
           {author?.username || 'Unknown Author'}
         </Link>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1" title="재현 횟수">
             <RefreshCcw className="h-4 w-4" />
-            <span>{reproduction_count}</span>
+            <span>{reproduction_count || 0}</span>
           </div>
           <div className="flex items-center gap-1">
             <Eye className="h-4 w-4" />

@@ -4,29 +4,6 @@ import { SearchBar, Badge, Button, Pagination } from '../components';
 import { Sparkles, SearchX, Eye, GitCommitHorizontal, Loader } from 'lucide-react';
 import { searchExperiments } from '../services/api';
 
-const highlightText = (text, query) => {
-  if (!query || !text) return text;
-  try {
-    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const parts = text.split(new RegExp(`(${escapedQuery})`, 'gi'));
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === query.toLowerCase() ? (
-            <mark key={i} className="bg-yellow-200 px-0">
-              {part}
-            </mark>
-          ) : (
-            part
-          )
-        )}
-      </>
-    );
-  } catch {
-    return text;
-  }
-};
-
 const RateBadge = ({ rate }) => {
   let variant = 'default';
   if (rate >= 80) variant = 'success';
@@ -163,13 +140,18 @@ const SearchPage = () => {
           >
             <div className="flex justify-between items-start">
               <h3 className="text-lg font-semibold text-blue-600 hover:underline">
-                {highlightText(result.title, query)}
+                {result.title}
               </h3>
               <RateBadge rate={result.reproduction_rate} />
             </div>
             <p className="mt-2 text-gray-600 line-clamp-3">
-              {highlightText(result.prompt_text, query)}
+              {result.prompt_text}
             </p>
+            {result.similarity_score && (
+              <div className="mt-2 text-xs text-gray-400">
+                유사도: {(result.similarity_score * 100).toFixed(1)}%
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="default">{result.ai_model}</Badge>

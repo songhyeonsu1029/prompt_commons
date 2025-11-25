@@ -1,4 +1,5 @@
-import { Link, Outlet } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { Search, Github, Plus } from 'lucide-react';
 import { Button } from '../components';
@@ -7,6 +8,15 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function MainLayout() {
   const { isAuthenticated, user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleHeaderSearch = (e) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchQuery('');
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -33,9 +43,12 @@ export default function MainLayout() {
                 <input
                   type="text"
                   placeholder="Search prompts..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleHeaderSearch}
                   className="w-full bg-gray-100 rounded-full pl-11 pr-4 py-2
                            focus:outline-none focus:ring-2 focus:ring-blue-500
-                           focus:bg-white transition-all duration-200"
+                           focus:bg-white transition-all duration-200 text-gray-900"
                 />
               </div>
             </div>

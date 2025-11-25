@@ -37,7 +37,7 @@ const NewExperimentPage = () => {
       title: '',
       ai_model: '',
       model_version: '',
-      task_type: 'code_generation',
+      task_type: '',
       prompt_text: '',
       modification_guide: '',
       description: '',
@@ -125,21 +125,17 @@ const NewExperimentPage = () => {
 
           {/* Task Type */}
           <div>
-            <FormLabel htmlFor="task_type" required>
+            <FormLabel htmlFor="task_type">
               Task Type
             </FormLabel>
-            <select
+            <input
+              type="text"
               id="task_type"
               {...register('task_type')}
+              placeholder="e.g., Code Generation, Translation, Analysis"
               className={getInputClassName('task_type')}
-            >
-              <option value="code_generation">Code Generation</option>
-              <option value="translation">Translation</option>
-              <option value="analysis">Analysis</option>
-              <option value="summarization">Summarization</option>
-              <option value="creative_writing">Creative Writing</option>
-              <option value="other">Other</option>
-            </select>
+            />
+            <p className="text-xs text-gray-500 mt-1">Describe the type of task this prompt is designed for.</p>
           </div>
 
           {/* Prompt Text */}

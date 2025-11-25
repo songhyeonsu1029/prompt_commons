@@ -4,6 +4,12 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const { authMiddleware, optionalAuth } = require('../middlewares/authMiddleware');
 const { ApiError, asyncHandler } = require('../middlewares/errorHandler');
+const {
+  indexExperiment,
+  deleteExperiment: deleteFromES,
+  updateExperiment: updateInES,
+  semanticSearch
+} = require('../services/elasticsearchService');
 const prisma = new PrismaClient();
 
 // 실험 목록 조회 (최신순, 페이지네이션 가능)
@@ -82,65 +88,64 @@ router.get('/', async (req, res) => {
 });
 
 // ==========================================
-// GET /api/experiments/search - 실험 검색
+// GET /api/experiments/search - 자연어 검색 (Elasticsearch + Gemini Embedding)
 // ==========================================
 router.get('/search', asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
-  const skip = (page - 1) * limit;
 
   const query = req.query.q || '';
   const model = req.query.model;
   const rate = parseInt(req.query.rate) || 0;
 
-  // 검색 조건 구성
-  const whereConditions = {
-    AND: []
-  };
-
-  // 텍스트 검색 (제목 또는 프롬프트 텍스트)
-  if (query) {
-    whereConditions.AND.push({
-      OR: [
-        { title: { contains: query } },
-        {
-          versions: {
-            some: {
-              promptText: { contains: query }
-            }
-          }
-        }
-      ]
+  // 검색어 필수 검증
+  if (!query || query.trim().length === 0) {
+    return res.json({
+      data: [],
+      pagination: {
+        currentPage: page,
+        totalPages: 0,
+        totalResults: 0
+      },
+      message: '검색어를 입력해주세요.'
     });
   }
 
-  // AI 모델 필터
-  if (model && model !== 'All') {
-    whereConditions.AND.push({
-      activeVersion: {
-        aiModel: { contains: model }
-      }
+  // Elasticsearch 자연어 검색 실행
+  const esResult = await semanticSearch({
+    query: query.trim(),
+    model: model,
+    minRate: rate,
+    page: page,
+    limit: limit
+  });
+
+  // ES 검색 실패 시 에러 응답
+  if (!esResult.success) {
+    return res.status(503).json({
+      error: '검색 서비스에 일시적인 문제가 발생했습니다.',
+      details: esResult.error
     });
   }
 
-  // 재현율 필터
-  if (rate > 0) {
-    whereConditions.AND.push({
-      activeVersion: {
-        reproductionRate: { gte: rate }
-      }
+  // 검색 결과가 없는 경우
+  if (esResult.data.length === 0) {
+    return res.json({
+      data: [],
+      pagination: {
+        currentPage: page,
+        totalPages: 0,
+        totalResults: 0
+      },
+      message: '검색 결과가 없습니다.'
     });
   }
 
-  // AND 조건이 비어있으면 제거
-  const finalWhere = whereConditions.AND.length > 0 ? whereConditions : {};
+  // ES 검색 결과의 ID로 MySQL에서 상세 정보 조회
+  const experimentIds = esResult.data.map(r => BigInt(r.id));
 
-  // 검색 실행
   const experiments = await prisma.experiment.findMany({
-    where: finalWhere,
-    skip,
-    take: limit,
-    orderBy: { createdAt: 'desc' },
+    where: { id: { in: experimentIds } },
     include: {
       author: { select: { username: true } },
       activeVersion: {
@@ -157,11 +162,14 @@ router.get('/search', asyncHandler(async (req, res) => {
     }
   });
 
-  // 전체 개수
-  const totalCount = await prisma.experiment.count({ where: finalWhere });
+  // ES 검색 결과 순서 유지 (유사도 점수 순)
+  const experimentMap = new Map(experiments.map(e => [e.id.toString(), e]));
+  const orderedExperiments = esResult.data
+    .map(r => experimentMap.get(r.id))
+    .filter(Boolean);
 
   // 데이터 가공
-  const formattedResults = experiments.map(exp => {
+  const formattedResults = orderedExperiments.map((exp, idx) => {
     const version = exp.activeVersion || {};
     return {
       id: exp.id.toString(),
@@ -173,7 +181,8 @@ router.get('/search', asyncHandler(async (req, res) => {
       reproduction_count: version.reproductionCount || 0,
       views: version.viewCount || 0,
       tags: version.tags?.map(t => t.tagName) || [],
-      created_at: exp.createdAt.toISOString()
+      created_at: exp.createdAt.toISOString(),
+      similarity_score: esResult.data[idx]?.score // 유사도 점수 포함
     };
   });
 
@@ -181,8 +190,8 @@ router.get('/search', asyncHandler(async (req, res) => {
     data: formattedResults,
     pagination: {
       currentPage: page,
-      totalPages: Math.ceil(totalCount / limit),
-      totalResults: totalCount
+      totalPages: Math.ceil(esResult.total / limit),
+      totalResults: esResult.total
     }
   });
 }));
@@ -270,7 +279,21 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
     return { experiment, firstVersion };
   });
 
-  // 4. 생성된 실험 정보 반환
+  // 4. Elasticsearch에 인덱싱 (비동기, 실패해도 API 응답에 영향 없음)
+  indexExperiment({
+    id: result.experiment.id.toString(),
+    title: title,
+    description: description || '',
+    promptText: prompt_text,
+    aiModel: ai_model,
+    reproductionRate: 0,
+    tags: tagList,
+    createdAt: result.experiment.createdAt
+  }).catch(err => {
+    console.error('[Experiment Create] ES indexing failed:', err.message);
+  });
+
+  // 5. 생성된 실험 정보 반환
   const response = {
     id: result.experiment.id.toString(),
     title: result.experiment.title,
@@ -720,6 +743,20 @@ router.post('/:id/versions', authMiddleware, asyncHandler(async (req, res) => {
     isSaved
   };
 
+  // Elasticsearch 업데이트 (새 버전 정보로 재인덱싱)
+  updateInES({
+    id: updatedExperiment.id.toString(),
+    title: updatedExperiment.title,
+    description: targetVersion?.promptDescription || '',
+    promptText: targetVersion?.promptText || '',
+    aiModel: targetVersion?.aiModel || '',
+    reproductionRate: targetVersion?.reproductionRate || 0,
+    tags: targetVersion?.tags?.map(t => t.tagName) || [],
+    createdAt: updatedExperiment.createdAt
+  }).catch(err => {
+    console.error('[Version Deploy] ES update failed:', err.message);
+  });
+
   res.status(201).json(response);
 }));
 
@@ -873,6 +910,34 @@ router.post('/:id/reproductions', authMiddleware, asyncHandler(async (req, res) 
       reproductionRate: reproductionRate
     }
   });
+
+  // 5-1. 활성 버전이 업데이트된 경우 Elasticsearch도 업데이트
+  if (targetVersion.id === experiment.activeVersionId) {
+    // 전체 실험 정보 가져오기
+    const fullExperiment = await prisma.experiment.findUnique({
+      where: { id: BigInt(id) },
+      include: {
+        activeVersion: {
+          include: { tags: { select: { tagName: true } } }
+        }
+      }
+    });
+
+    if (fullExperiment?.activeVersion) {
+      updateInES({
+        id: fullExperiment.id.toString(),
+        title: fullExperiment.title,
+        description: fullExperiment.activeVersion.promptDescription || '',
+        promptText: fullExperiment.activeVersion.promptText || '',
+        aiModel: fullExperiment.activeVersion.aiModel || '',
+        reproductionRate: reproductionRate,
+        tags: fullExperiment.activeVersion.tags?.map(t => t.tagName) || [],
+        createdAt: fullExperiment.createdAt
+      }).catch(err => {
+        console.error('[Reproduction Submit] ES update failed:', err.message);
+      });
+    }
+  }
 
   // 6. 응답 형식 맞추기
   const response = {
@@ -1079,6 +1144,11 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
   // 3. 실험 삭제 (CASCADE로 관련 데이터도 삭제됨)
   await prisma.experiment.delete({
     where: { id: BigInt(id) }
+  });
+
+  // 4. Elasticsearch에서도 삭제
+  deleteFromES(id).catch(err => {
+    console.error('[Experiment Delete] ES delete failed:', err.message);
   });
 
   res.json({ message: '실험이 삭제되었습니다.' });
