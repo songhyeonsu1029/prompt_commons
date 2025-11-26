@@ -30,10 +30,15 @@ dist-ssr
 .claude/
 test-api.mjs
 CLAUDE.MD
-/prisma/
+prisma/
 docker-compose.yml
-
-/generated/prisma
-/scripts/
+scripts/
 
 eslint.config.js
+
+SEARCH_ARCHITECTURE.md
+TEST_REPORT.md
+
+tests/
+coverage/
+generated/
