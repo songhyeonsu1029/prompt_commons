@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Star, Beaker, User, Settings, CheckCircle, XCircle, Loader, AlertTriangle, FileText } from 'lucide-react';
+import { Star, Beaker, User, Settings, CheckCircle, XCircle, Loader, AlertTriangle, FileText, Users } from 'lucide-react';
 import { Button, TabButton } from '../components';
 import Card from '../components/Card';
 import { useAuth } from '../contexts/AuthContext';
-import { fetchMyPageData } from '../services/api';
+import { fetchMyPageData, getFollowers, getFollowing } from '../services/api';
 
 const MyPage = () => {
   const [activeTab, setActiveTab] = useState('saved');
@@ -14,6 +14,12 @@ const MyPage = () => {
   const [myData, setMyData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Modal State
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
 
   useEffect(() => {
     if (user?.username) {
@@ -30,6 +36,26 @@ const MyPage = () => {
         });
     }
   }, [user]);
+
+  const handleShowFollowers = async () => {
+    setShowFollowersModal(true);
+    try {
+      const data = await getFollowers(user.username);
+      setFollowers(data.followers);
+    } catch (err) {
+      console.error("Failed to fetch followers:", err);
+    }
+  };
+
+  const handleShowFollowing = async () => {
+    setShowFollowingModal(true);
+    try {
+      const data = await getFollowing(user.username);
+      setFollowing(data.following);
+    } catch (err) {
+      console.error("Failed to fetch following:", err);
+    }
+  };
 
   const renderContent = () => {
     if (!myData) return null;
@@ -60,7 +86,7 @@ const MyPage = () => {
             ))}
           </div>
         );
-      
+
       case 'reproductions':
         return (
           <div className="space-y-4">
@@ -157,6 +183,25 @@ const MyPage = () => {
               </div>
               <h1 className="text-2xl font-bold">{userProfile.username}</h1>
               <p className="text-gray-600 text-center my-3">{userProfile.bio}</p>
+
+              {/* Follow Stats */}
+              <div className="flex gap-4 my-2 w-full justify-center">
+                <button
+                  onClick={handleShowFollowers}
+                  className="flex flex-col items-center hover:bg-gray-50 p-2 rounded transition-colors"
+                >
+                  <span className="font-bold text-lg">{userProfile.stats.followers || 0}</span>
+                  <span className="text-xs text-gray-500">Followers</span>
+                </button>
+                <button
+                  onClick={handleShowFollowing}
+                  className="flex flex-col items-center hover:bg-gray-50 p-2 rounded transition-colors"
+                >
+                  <span className="font-bold text-lg">{userProfile.stats.following || 0}</span>
+                  <span className="text-xs text-gray-500">Following</span>
+                </button>
+              </div>
+
               <Button variant="outline" className="w-full mt-2">
                 <Settings className="w-4 h-4 mr-2" />
                 Edit Profile
@@ -197,6 +242,110 @@ const MyPage = () => {
           </div>
         </main>
       </div>
+
+      {/* Followers Modal */}
+      {showFollowersModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Followers ({followers.length})
+              </h3>
+              <button
+                onClick={() => setShowFollowersModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto p-6">
+              {followers.length > 0 ? (
+                <div className="space-y-4">
+                  {followers.map((follower) => (
+                    <div
+                      key={follower.id}
+                      className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
+                          <User className="w-6 h-6 text-gray-500" />
+                        </div>
+                        <div>
+                          <Link
+                            to={`/users/${follower.username}`}
+                            className="font-semibold hover:text-blue-600"
+                            onClick={() => setShowFollowersModal(false)}
+                          >
+                            {follower.username}
+                          </Link>
+                          {follower.bio && (
+                            <p className="text-sm text-gray-600 line-clamp-1">{follower.bio}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-gray-500 py-8">No followers yet</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Following Modal */}
+      {showFollowingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Following ({following.length})
+              </h3>
+              <button
+                onClick={() => setShowFollowingModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto p-6">
+              {following.length > 0 ? (
+                <div className="space-y-4">
+                  {following.map((user) => (
+                    <div
+                      key={user.id}
+                      className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
+                          <User className="w-6 h-6 text-gray-500" />
+                        </div>
+                        <div>
+                          <Link
+                            to={`/users/${user.username}`}
+                            className="font-semibold hover:text-blue-600"
+                            onClick={() => setShowFollowingModal(false)}
+                          >
+                            {user.username}
+                          </Link>
+                          {user.bio && (
+                            <p className="text-sm text-gray-600 line-clamp-1">{user.bio}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-gray-500 py-8">Not following anyone yet</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -25,7 +25,7 @@ export default function HomePage() {
       });
   }, []);
 
-  // 실험 목록 로드
+  // 실험 목록 로드 (최신순)
   useEffect(() => {
     setIsLoading(true);
     fetchExperiments({ page: currentPage, limit: 6 })
@@ -121,14 +121,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Popular Experiments Section */}
+      {/* Latest Experiments Section */}
       <section className="bg-gradient-to-b from-gray-50 to-white py-16">
         <div className="max-w-7xl mx-auto px-4">
           <div className="mb-10">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">
-              Weekly Top Experiments
+              Latest Experiments
             </h2>
-            <p className="text-gray-600 text-lg">Most verified and reproduced prompts this week</p>
+            <p className="text-gray-600 text-lg">Recently published verified prompts</p>
           </div>
 
           {isLoading ? (

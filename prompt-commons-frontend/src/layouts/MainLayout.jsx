@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { Search, Github, Plus } from 'lucide-react';
+import { Search, Github, Plus, TrendingUp } from 'lucide-react';
 import { Button } from '../components';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -55,6 +55,13 @@ export default function MainLayout() {
 
             {/* Action Buttons */}
             <div className="flex items-center space-x-3">
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/weekly-top" className="flex items-center gap-1">
+                  <TrendingUp className="h-4 w-4" />
+                  Weekly Top
+                </Link>
+              </Button>
+
               <Button asChild variant="outline" size="sm">
                 <Link to="/experiments/new" className="flex items-center gap-1">
                   <Plus className="h-4 w-4" />

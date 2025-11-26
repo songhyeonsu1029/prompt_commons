@@ -15,7 +15,7 @@ dist-ssr
 # Environment variables
 .env
 .env.*
-!.env.example
+.env.example
 
 # Editor directories and files
 .vscode/*
@@ -32,3 +32,6 @@ test-api.mjs
 CLAUDE.MD
 /prisma/
 docker-compose.yml
+
+/generated/prisma
+/scripts/

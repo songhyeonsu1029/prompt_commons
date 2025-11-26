@@ -105,6 +105,13 @@ export const searchExperiments = ({ query = '', model = 'All', rate = 'All', pag
   return apiRequest(`/experiments/search?${params.toString()}`);
 };
 
+/**
+ * 주간 인기 실험 Top 10 조회
+ */
+export const fetchWeeklyTopExperiments = () => {
+  return apiRequest('/experiments/weekly-top');
+};
+
 // ==========================================
 // Comments API
 // ==========================================
@@ -213,4 +220,40 @@ export const changePassword = (currentPassword, newPassword) => {
  */
 export const fetchPlatformStats = () => {
   return apiRequest('/stats');
+};
+
+// ==========================================
+// Follow/Following API
+// ==========================================
+
+/**
+ * 유저 팔로우
+ */
+export const followUser = (username) => {
+  return apiRequest(`/users/${username}/follow`, {
+    method: 'POST',
+  });
+};
+
+/**
+ * 유저 언팔로우
+ */
+export const unfollowUser = (username) => {
+  return apiRequest(`/users/${username}/follow`, {
+    method: 'DELETE',
+  });
+};
+
+/**
+ * 팔로워 목록 조회
+ */
+export const getFollowers = (username) => {
+  return apiRequest(`/users/${username}/followers`);
+};
+
+/**
+ * 팔로잉 목록 조회
+ */
+export const getFollowing = (username) => {
+  return apiRequest(`/users/${username}/following`);
 };

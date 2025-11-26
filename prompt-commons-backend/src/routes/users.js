@@ -79,6 +79,15 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
     orderBy: { createdAt: 'desc' }
   });
 
+  // 5. 팔로워/팔로잉 수 조회
+  const followersCount = await prisma.follow.count({
+    where: { followingId: BigInt(userId) }
+  });
+
+  const followingCount = await prisma.follow.count({
+    where: { followerId: BigInt(userId) }
+  });
+
   // 5. 응답 형식 가공
   const formattedSaved = savedExperiments.map(s => ({
     id: s.experiment.id.toString(),
@@ -126,7 +135,9 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
       stats: {
         saved: savedExperiments.length,
         reproductions: reproductionHistory.length,
-        experiments: myExperiments.length
+        experiments: myExperiments.length,
+        followers: followersCount,
+        following: followingCount
       }
     },
     savedPrompts: formattedSaved,
@@ -140,6 +151,7 @@ router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
 // ==========================================
 router.get('/:username', asyncHandler(async (req, res) => {
   const { username } = req.params;
+  const currentUserId = req.user?.id; // optional auth
 
   // 1. 유저 조회
   const user = await prisma.user.findUnique({
@@ -179,7 +191,28 @@ router.get('/:username', asyncHandler(async (req, res) => {
     where: { verifierId: user.id }
   });
 
-  // 4. 응답 형식 가공
+  // 4. 팔로워/팔로잉 수 조회
+  const followersCount = await prisma.follow.count({
+    where: { followingId: user.id }
+  });
+
+  const followingCount = await prisma.follow.count({
+    where: { followerId: user.id }
+  });
+
+  // 5. 현재 유저가 이 프로필을 팔로우하는지 확인
+  let isFollowing = false;
+  if (currentUserId) {
+    const followRecord = await prisma.follow.findFirst({
+      where: {
+        followerId: BigInt(currentUserId),
+        followingId: user.id
+      }
+    });
+    isFollowing = !!followRecord;
+  }
+
+  // 6. 응답 형식 가공
   const formattedExperiments = experiments.map(e => ({
     id: e.id.toString(),
     title: e.title,
@@ -201,8 +234,11 @@ router.get('/:username', asyncHandler(async (req, res) => {
       joined_at: user.createdAt?.toISOString().split('T')[0],
       stats: {
         experiments: experiments.length,
-        reproductions: reproductionCount
-      }
+        reproductions: reproductionCount,
+        followers: followersCount,
+        following: followingCount
+      },
+      isFollowing
     },
     experiments: formattedExperiments
   });
@@ -289,6 +325,200 @@ router.put('/me/password', authMiddleware, asyncHandler(async (req, res) => {
   });
 
   res.json({ message: '비밀번호가 변경되었습니다.' });
+}));
+
+// ==========================================
+// POST /api/users/:username/follow - 유저 팔로우
+// ==========================================
+router.post('/:username/follow', authMiddleware, asyncHandler(async (req, res) => {
+  const { username } = req.params;
+  const followerId = req.user.id;
+
+  // 1. 팔로우할 유저 조회
+  const userToFollow = await prisma.user.findUnique({
+    where: { username }
+  });
+
+  if (!userToFollow) {
+    throw new ApiError(404, '유저를 찾을 수 없습니다.');
+  }
+
+  // 2. 자기 자신을 팔로우하려는 경우 방지
+  if (userToFollow.id.toString() === followerId) {
+    throw new ApiError(400, '자기 자신을 팔로우할 수 없습니다.');
+  }
+
+  // 3. 이미 팔로우 중인지 확인
+  const existingFollow = await prisma.follow.findFirst({
+    where: {
+      followerId: BigInt(followerId),
+      followingId: userToFollow.id
+    }
+  });
+
+  if (existingFollow) {
+    throw new ApiError(409, '이미 팔로우 중입니다.');
+  }
+
+  // 4. 팔로우 생성
+  await prisma.follow.create({
+    data: {
+      followerId: BigInt(followerId),
+      followingId: userToFollow.id
+    }
+  });
+
+  // 5. 팔로워/팔로잉 수 조회
+  const followersCount = await prisma.follow.count({
+    where: { followingId: userToFollow.id }
+  });
+
+  const followingCount = await prisma.follow.count({
+    where: { followerId: userToFollow.id }
+  });
+
+  res.json({
+    message: '팔로우했습니다.',
+    isFollowing: true,
+    followersCount,
+    followingCount
+  });
+}));
+
+// ==========================================
+// DELETE /api/users/:username/follow - 유저 언팔로우
+// ==========================================
+router.delete('/:username/follow', authMiddleware, asyncHandler(async (req, res) => {
+  const { username } = req.params;
+  const followerId = req.user.id;
+
+  // 1. 언팔로우할 유저 조회
+  const userToUnfollow = await prisma.user.findUnique({
+    where: { username }
+  });
+
+  if (!userToUnfollow) {
+    throw new ApiError(404, '유저를 찾을 수 없습니다.');
+  }
+
+  // 2. 팔로우 관계 확인
+  const existingFollow = await prisma.follow.findFirst({
+    where: {
+      followerId: BigInt(followerId),
+      followingId: userToUnfollow.id
+    }
+  });
+
+  if (!existingFollow) {
+    throw new ApiError(404, '팔로우하고 있지 않습니다.');
+  }
+
+  // 3. 언팔로우 (삭제)
+  await prisma.follow.delete({
+    where: { id: existingFollow.id }
+  });
+
+  // 4. 팔로워/팔로잉 수 조회
+  const followersCount = await prisma.follow.count({
+    where: { followingId: userToUnfollow.id }
+  });
+
+  const followingCount = await prisma.follow.count({
+    where: { followerId: userToUnfollow.id }
+  });
+
+  res.json({
+    message: '언팔로우했습니다.',
+    isFollowing: false,
+    followersCount,
+    followingCount
+  });
+}));
+
+// ==========================================
+// GET /api/users/:username/followers - 팔로워 목록 조회
+// ==========================================
+router.get('/:username/followers', asyncHandler(async (req, res) => {
+  const { username } = req.params;
+
+  // 1. 유저 조회
+  const user = await prisma.user.findUnique({
+    where: { username }
+  });
+
+  if (!user) {
+    throw new ApiError(404, '유저를 찾을 수 없습니다.');
+  }
+
+  // 2. 팔로워 목록 조회
+  const followers = await prisma.follow.findMany({
+    where: { followingId: user.id },
+    include: {
+      follower: {
+        select: {
+          id: true,
+          username: true,
+          bio: true
+        }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  const formattedFollowers = followers.map(f => ({
+    id: f.follower.id.toString(),
+    username: f.follower.username,
+    bio: f.follower.bio,
+    followed_at: f.createdAt?.toISOString()
+  }));
+
+  res.json({
+    count: followers.length,
+    followers: formattedFollowers
+  });
+}));
+
+// ==========================================
+// GET /api/users/:username/following - 팔로잉 목록 조회
+// ==========================================
+router.get('/:username/following', asyncHandler(async (req, res) => {
+  const { username } = req.params;
+
+  // 1. 유저 조회
+  const user = await prisma.user.findUnique({
+    where: { username }
+  });
+
+  if (!user) {
+    throw new ApiError(404, '유저를 찾을 수 없습니다.');
+  }
+
+  // 2. 팔로잉 목록 조회
+  const following = await prisma.follow.findMany({
+    where: { followerId: user.id },
+    include: {
+      following: {
+        select: {
+          id: true,
+          username: true,
+          bio: true
+        }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  const formattedFollowing = following.map(f => ({
+    id: f.following.id.toString(),
+    username: f.following.username,
+    bio: f.following.bio,
+    followed_at: f.createdAt?.toISOString()
+  }));
+
+  res.json({
+    count: following.length,
+    following: formattedFollowing
+  });
 }));
 
 module.exports = router;

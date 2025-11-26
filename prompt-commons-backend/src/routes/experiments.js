@@ -12,6 +12,87 @@ const {
 } = require('../services/elasticsearchService');
 const prisma = new PrismaClient();
 
+// 주간 인기 실험 Top 10 조회
+router.get('/weekly-top', async (req, res) => {
+  try {
+    // 7일 전 날짜 계산
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    // 최근 7일 내 생성된 실험 가져오기
+    const experiments = await prisma.experiment.findMany({
+      where: {
+        createdAt: {
+          gte: oneWeekAgo
+        }
+      },
+      include: {
+        author: {
+          select: { username: true }
+        },
+        activeVersion: {
+          select: {
+            versionNumber: true,
+            aiModel: true,
+            modelVersion: true,
+            reproductionRate: true,
+            reproductionCount: true,
+            viewCount: true,
+            promptText: true,
+            tags: {
+              select: { tagName: true }
+            }
+          }
+        }
+      }
+    });
+
+    // 인기도 점수 계산 및 정렬
+    const experimentsWithScore = experiments.map(exp => {
+      const version = exp.activeVersion || {};
+
+      // 인기도 점수 계산 공식:
+      // (조회수 * 1) + (재현율 * 2) + (재현 횟수 * 5)
+      const views = version.viewCount || 0;
+      const rate = version.reproductionRate || 0;
+      const count = version.reproductionCount || 0;
+      const popularityScore = (views * 1) + (rate * 2) + (count * 5);
+
+      const tags = version.tags ? version.tags.map(t => t.tagName) : [];
+
+      return {
+        id: exp.id.toString(),
+        title: exp.title,
+        author: { username: exp.author.username },
+        version_number: version.versionNumber || 'v1.0',
+        ai_model: version.aiModel || 'Unknown',
+        model_version: version.modelVersion,
+        prompt_text: version.promptText || '',
+        reproduction_rate: version.reproductionRate || 0,
+        reproduction_count: version.reproductionCount || 0,
+        views: version.viewCount || 0,
+        tags: tags,
+        created_at: exp.createdAt.toISOString(),
+        popularity_score: popularityScore
+      };
+    });
+
+    // 인기도 점수 기준 내림차순 정렬 후 상위 10개만 선택
+    const topExperiments = experimentsWithScore
+      .sort((a, b) => b.popularity_score - a.popularity_score)
+      .slice(0, 10);
+
+    res.json({
+      data: topExperiments,
+      count: topExperiments.length
+    });
+
+  } catch (error) {
+    console.error('주간 인기 실험 조회 에러:', error);
+    res.status(500).json({ error: '주간 인기 실험을 불러오는데 실패했습니다.' });
+  }
+});
+
 // 실험 목록 조회 (최신순, 페이지네이션 가능)
 router.get('/', async (req, res) => {
   try {
@@ -92,7 +173,7 @@ router.get('/', async (req, res) => {
 // ==========================================
 router.get('/search', asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
+  const limit = Math.min(parseInt(req.query.limit) || 20, 20); // 최대 20개로 제한
 
   const query = req.query.q || '';
   const model = req.query.model;
