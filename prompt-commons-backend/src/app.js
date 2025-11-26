@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const authRoutes = require('./routes/auth');
 const experimentRoutes = require('./routes/experiments');
@@ -13,8 +15,34 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
 // 미들웨어 설정
-app.use(cors()); // 모든 도메인 허용 (개발용)
+app.use(cors({
+  origin: 'http://localhost:5174', // 프론트엔드 주소
+  credentials: true // 쿠키 허용
+}));
+app.use(cookieParser());
 app.use(express.json()); // JSON 요청 본문 해석
+
+// Rate Limiting 설정
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15분
+  max: 100, // IP당 100개 요청
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+
+const authLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1시간
+  max: 20, // IP당 20개 요청 (로그인/회원가입 등)
+  message: 'Too many login attempts, please try again after an hour'
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1시간
+  max: 50, // IP당 50개 요청 (AI 실험 생성 등)
+  message: 'AI request limit exceeded, please try again later'
+});
+
+// 전역 제한 적용 (모든 라우트에)
+app.use(generalLimiter);
 
 // 루트 경로 (API 서버 정보)
 app.get('/', (req, res) => {
@@ -39,8 +67,8 @@ app.get('/api/test-db', async (req, res) => {
   try {
     // DB에 쿼리 날려보기 (간단한 연산)
     const result = await prisma.$queryRaw`SELECT 1 + 1 AS result`;
-    res.json({ 
-      message: 'Database connection successful!', 
+    res.json({
+      message: 'Database connection successful!',
       result: Number(result[0].result) // BigInt 처리
     });
   } catch (error) {
@@ -49,8 +77,8 @@ app.get('/api/test-db', async (req, res) => {
   }
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/experiments', experimentRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/experiments', aiLimiter, experimentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stats', statsRoutes);
 

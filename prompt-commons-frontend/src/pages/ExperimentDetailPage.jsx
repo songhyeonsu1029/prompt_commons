@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   Eye,
@@ -49,53 +50,66 @@ const ReliabilityCard = ({ stats }) => {
 };
 
 const ExperimentDetailPage = () => {
+  const queryClient = useQueryClient();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, isAuthenticated } = useAuth();
-  const [experiment, setExperiment] = useState(null);
-  const [selectedVersion, setSelectedVersion] = useState(null);
+
+  // URL 파라미터에서 버전 가져오기
+  const versionParam = searchParams.get('version');
+  const [selectedVersion, setSelectedVersion] = useState(versionParam);
 
   const [activeTab, setActiveTab] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
 
-  // 1. loadExperimentData를 useEffect 밖으로 이동하고 useCallback으로 감쌈
-  const loadExperimentData = useCallback(() => {
-    setError(null);
-    fetchExperimentById(id, user?.username)
-      .then(data => {
-        setExperiment(data);
-        setIsSaved(data.isSaved);
-        setSelectedVersion(prev => prev || data.version_number);
-      })
-      .catch(err => {
-        console.error("Failed to fetch experiment:", err);
-        setError(err.message);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [id, user?.username]);
+  // Fetch Experiment Data
+  const { data: experiment, isLoading, isError, error } = useQuery({
+    queryKey: ['experiment', id, { version: user?.username }], // user.username은 isSaved 체크용
+    queryFn: () => fetchExperimentById(id, user?.username),
+  });
 
-  useEffect(() => {
-    loadExperimentData();
-  }, [loadExperimentData]);
-
-  // URL 파라미터에서 버전 설정
-  useEffect(() => {
-    const versionParam = searchParams.get('version');
-    if (versionParam && experiment?.versions) {
-      const versionExists = experiment.versions.some(v => v.version_number === versionParam);
-      if (versionExists) {
-        setSelectedVersion(versionParam);
-      }
+  // Save Mutation
+  const saveMutation = useMutation({
+    mutationFn: () => saveExperiment(id, user.username),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries(['experiment', id]);
+      toast.success(data.isSaved ? "Experiment saved!" : "Experiment unsaved.");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update save status.");
     }
-  }, [searchParams, experiment]);
+  });
+
+  // Publish Version Mutation
+  const publishMutation = useMutation({
+    mutationFn: (newVersionData) => updateExperiment(id, newVersionData),
+    onSuccess: (updatedExperiment) => {
+      toast.success('New version published!');
+      queryClient.setQueryData(['experiment', id, { version: user?.username }], updatedExperiment);
+      setSelectedVersion(updatedExperiment.active_version); // 최신 버전으로 이동
+      setIsModalOpen(false);
+      setActiveTab('history');
+    },
+    onError: (err) => {
+      console.error('Failed to publish new version:', err);
+      toast.error('Failed to publish new version.');
+    }
+  });
+
+  // URL 파라미터 변경 시 selectedVersion 업데이트
+  useEffect(() => {
+    if (versionParam) {
+      setSelectedVersion(versionParam);
+    } else if (experiment?.active_version && !selectedVersion) {
+      // 초기 로드 시 URL에 버전이 없으면 active_version(최신)으로 설정
+      setSelectedVersion(experiment.active_version);
+    }
+  }, [versionParam, experiment, selectedVersion]);
+
+
 
   // scrollTo 파라미터 처리 - reproduction으로 자동 스크롤
   useEffect(() => {
@@ -126,21 +140,15 @@ const ExperimentDetailPage = () => {
     });
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!isAuthenticated) {
       toast.error("You must be logged in to save an experiment.");
       navigate('/login');
       return;
     }
-    try {
-      const response = await saveExperiment(id, user.username);
-      setIsSaved(response.isSaved);
-      toast.success(response.isSaved ? "Experiment saved!" : "Experiment unsaved.");
-    } catch (err) {
-      toast.error(err.message || "Failed to update save status.");
-    }
+    saveMutation.mutate();
   };
-  
+
   // Publishing a new version
   const handlePublish = (e) => {
     e.preventDefault();
@@ -155,18 +163,7 @@ const ExperimentDetailPage = () => {
       model_version: formData.get('model_version'),
     };
 
-    updateExperiment(id, newVersionData)
-      .then((updatedExperiment) => {
-        toast.success('New version published!');
-        setExperiment(updatedExperiment);
-        setSelectedVersion(newVersionData.version_number);
-        setIsModalOpen(false);
-        setActiveTab('history');
-      })
-      .catch((err) => {
-        console.error('Failed to publish new version:', err);
-        toast.error('Failed to publish new version.');
-      });
+    publishMutation.mutate(newVersionData);
   };
 
   // Logic to get data for the currently selected version
@@ -194,7 +191,7 @@ const ExperimentDetailPage = () => {
       <div className="text-center py-20 text-red-500">
         <AlertTriangle className="w-12 h-12 mx-auto mb-4" />
         <h2 className="text-2xl font-bold mb-2">Error</h2>
-        <p>{error}</p>
+        <p>{error.message}</p>
         <Button onClick={() => navigate('/')} className="mt-6">Go Home</Button>
       </div>
     );
@@ -261,8 +258,8 @@ const ExperimentDetailPage = () => {
 
           {/* Action Buttons */}
           <div className="flex flex-wrap gap-2 my-6">
-            <Button variant={isSaved ? "primary" : "outline"} onClick={handleSave}>
-              <Bookmark className="w-4 h-4 mr-2" /> {isSaved ? 'Saved' : 'Save'}
+            <Button variant={experiment.isSaved ? "primary" : "outline"} onClick={handleSave} disabled={saveMutation.isPending}>
+              <Bookmark className="w-4 h-4 mr-2" /> {experiment.isSaved ? 'Saved' : 'Save'}
             </Button>
             <Button variant="primary" onClick={() => navigate(`/experiments/${id}/reproduce?version=${selectedVersion}`)}>
               <Beaker className="w-4 h-4 mr-2" /> Try Reproduction
@@ -328,13 +325,13 @@ const ExperimentDetailPage = () => {
 
           {/* History Tab (Toggleable) */}
           <div className="mt-8">
-             <div className="border-b border-gray-200 mb-6">
+            <div className="border-b border-gray-200 mb-6">
               <nav className="-mb-px flex space-x-8">
                 <button
                   onClick={() => setActiveTab(activeTab === 'history' ? null : 'history')}
                   className={`${activeTab === 'history' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2`}
                 >
-                  <History className="w-4 h-4" /> 
+                  <History className="w-4 h-4" />
                   {activeTab === 'history' ? 'Hide Version History' : 'Show Version History'}
                 </button>
               </nav>
@@ -389,7 +386,7 @@ const ExperimentDetailPage = () => {
               experimentId={displayData.id}
               comments={displayData.comments || []}
               reproductions={(displayData.reproductions || []).filter(r => r.version_number === selectedVersion)}
-              onUpdate={loadExperimentData}
+              onUpdate={() => queryClient.invalidateQueries(['experiment', id])}
               defaultTab={searchParams.get('scrollTo')?.startsWith('reproduction-') ? 'verification' : 'discussion'}
             />
           )}

@@ -35,3 +35,5 @@ docker-compose.yml
 
 /generated/prisma
 /scripts/
+
+eslint.config.js

@@ -27,10 +27,11 @@ export const AuthProvider = ({ children }) => {
 
     setIsRefreshing(true);
     try {
+      // 쿠키를 사용하므로 body에 refreshToken을 보낼 필요 없음
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        credentials: 'include', // 쿠키 포함
       });
 
       if (!response.ok) {
@@ -39,7 +40,7 @@ export const AuthProvider = ({ children }) => {
 
       const data = await response.json();
       localStorage.setItem('token', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
+      // refreshToken은 쿠키에 저장되므로 localStorage 저장 안 함
       localStorage.setItem('user', JSON.stringify(data.user));
       localStorage.setItem('tokenExpiry', Date.now() + data.expiresIn * 1000);
       setUser(data.user);
@@ -48,7 +49,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Token refresh failed:', error);
       // 리프레시 실패 시 로그아웃
       localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
+      // localStorage.removeItem('refreshToken'); // 제거
       localStorage.removeItem('user');
       localStorage.removeItem('tokenExpiry');
       setUser(null);
@@ -61,9 +62,9 @@ export const AuthProvider = ({ children }) => {
   // 토큰 만료 전 자동 갱신 (만료 1분 전)
   useEffect(() => {
     const tokenExpiry = localStorage.getItem('tokenExpiry');
-    const refreshToken = localStorage.getItem('refreshToken');
+    // const refreshToken = localStorage.getItem('refreshToken'); // 쿠키 사용
 
-    if (!tokenExpiry || !refreshToken || !user) return;
+    if (!tokenExpiry || !user) return;
 
     const expiryTime = parseInt(tokenExpiry);
     const timeUntilExpiry = expiryTime - Date.now();
@@ -112,6 +113,7 @@ export const AuthProvider = ({ children }) => {
           email: userData.email,
           password: userData.password,
         }),
+        credentials: 'include',
       });
 
       const data = await response.json();
@@ -122,7 +124,7 @@ export const AuthProvider = ({ children }) => {
 
       // 토큰 저장
       localStorage.setItem('token', data.accessToken || data.token);
-      localStorage.setItem('refreshToken', data.refreshToken);
+      // localStorage.setItem('refreshToken', data.refreshToken); // 쿠키 사용
       localStorage.setItem('user', JSON.stringify(data.user));
       localStorage.setItem('tokenExpiry', Date.now() + (data.expiresIn || 3600) * 1000);
 
@@ -162,9 +164,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+
     localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
+    // localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     localStorage.removeItem('tokenExpiry');
     setUser(null);

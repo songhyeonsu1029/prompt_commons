@@ -147,11 +147,7 @@ const SearchPage = () => {
             <p className="mt-2 text-gray-600 line-clamp-3">
               {result.prompt_text}
             </p>
-            {result.similarity_score && (
-              <div className="mt-2 text-xs text-gray-400">
-                유사도: {(result.similarity_score * 100).toFixed(1)}%
-              </div>
-            )}
+
             <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="default">{result.ai_model}</Badge>

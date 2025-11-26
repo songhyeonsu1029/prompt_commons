@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Button, SearchBar, Card, Pagination, Badge } from '../components';
 import { fetchExperiments } from '../services/api';
@@ -18,39 +19,27 @@ export default function ExperimentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { isAuthenticated } = useAuth();
 
-  const [experiments, setExperiments] = useState([]);
-  const [pagination, setPagination] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showFilters, setShowFilters] = useState(false);
-
-  // Filter states from URL params
   const currentPage = parseInt(searchParams.get('page') || '1');
   const selectedModel = searchParams.get('model') || 'All';
   const selectedTaskType = searchParams.get('task') || 'All';
   const sortBy = searchParams.get('sort') || 'latest';
   const searchQuery = searchParams.get('q') || '';
 
-  useEffect(() => {
-    setIsLoading(true);
-    fetchExperiments({
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['experiments', { page: currentPage, model: selectedModel, task: selectedTaskType, sort: sortBy, q: searchQuery }],
+    queryFn: () => fetchExperiments({
       page: currentPage,
       limit: 9,
       model: selectedModel !== 'All' ? selectedModel : undefined,
       taskType: selectedTaskType !== 'All' ? selectedTaskType : undefined,
       sort: sortBy,
       q: searchQuery || undefined
-    })
-      .then(response => {
-        setExperiments(response.data);
-        setPagination(response.pagination);
-      })
-      .catch(error => {
-        console.error("Failed to fetch experiments:", error);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [currentPage, selectedModel, selectedTaskType, sortBy, searchQuery]);
+    }),
+    keepPreviousData: true, // 페이지네이션 시 깜빡임 방지 (v5에서는 placeholderData: keepPreviousData 사용 권장하지만 간단히 처리)
+  });
+
+  const experiments = data?.data || [];
+  const pagination = data?.pagination || null;
 
   const updateParams = (updates) => {
     const newParams = new URLSearchParams(searchParams);

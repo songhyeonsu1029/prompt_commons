@@ -18,6 +18,7 @@ const apiRequest = async (endpoint, options = {}) => {
       ...options.headers,
     },
     ...options,
+    credentials: 'include', // 쿠키 포함
   };
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, config);

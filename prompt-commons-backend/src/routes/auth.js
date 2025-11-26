@@ -12,6 +12,14 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'default_refresh_se
 const ACCESS_TOKEN_EXPIRES = '15m';  // Access 토큰: 15분
 const REFRESH_TOKEN_EXPIRES = '7d';   // Refresh 토큰: 7일
 
+// 쿠키 옵션
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production', // 프로덕션에서는 true (HTTPS)
+  sameSite: 'strict',
+  maxAge: 7 * 24 * 60 * 60 * 1000 // 7일
+};
+
 // 토큰 생성 헬퍼 함수
 const generateTokens = (user) => {
   const accessToken = jwt.sign(
@@ -81,7 +89,7 @@ router.post('/register', async (req, res) => {
     res.status(500).json({ error: '회원가입 처리에 실패했습니다.' });
   }
 
-  
+
 });
 
 // 로그인 API
@@ -109,11 +117,14 @@ router.post('/login', async (req, res) => {
     const { accessToken, refreshToken } = generateTokens(user);
 
     // 5. 응답 (토큰과 유저 기본 정보)
+    // Refresh Token은 쿠키에 저장
+    res.cookie('refreshToken', refreshToken, cookieOptions);
+
     res.json({
       message: '로그인 성공!',
       token: accessToken,           // 기존 호환성 유지
       accessToken,
-      refreshToken,
+      // refreshToken은 바디에서 제거
       expiresIn: 15 * 60,           // 15분 (초 단위)
       user: {
         id: user.id.toString(),
@@ -133,7 +144,8 @@ router.post('/login', async (req, res) => {
 // ==========================================
 router.post('/refresh', async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    // 쿠키에서 리프레시 토큰 읽기
+    const refreshToken = req.cookies.refreshToken;
 
     if (!refreshToken) {
       return res.status(400).json({ error: '리프레시 토큰이 필요합니다.' });
@@ -167,9 +179,12 @@ router.post('/refresh', async (req, res) => {
     // 4. 새 토큰 발급
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user);
 
+    // 새 리프레시 토큰 쿠키 설정
+    res.cookie('refreshToken', newRefreshToken, cookieOptions);
+
     res.json({
       accessToken,
-      refreshToken: newRefreshToken,
+      // refreshToken 바디 제거
       expiresIn: 15 * 60,
       user: {
         id: user.id.toString(),
@@ -182,6 +197,14 @@ router.post('/refresh', async (req, res) => {
     console.error('토큰 갱신 에러:', error);
     res.status(500).json({ error: '토큰 갱신 중 오류가 발생했습니다.' });
   }
+});
+
+// ==========================================
+// POST /api/auth/logout - 로그아웃
+// ==========================================
+router.post('/logout', (req, res) => {
+  res.clearCookie('refreshToken');
+  res.json({ message: '로그아웃 되었습니다.' });
 });
 
 // ==========================================

@@ -8,7 +8,8 @@ const {
   indexExperiment,
   deleteExperiment: deleteFromES,
   updateExperiment: updateInES,
-  semanticSearch
+  semanticSearch,
+  syncAllExperiments
 } = require('../services/elasticsearchService');
 const prisma = new PrismaClient();
 
@@ -246,7 +247,7 @@ router.get('/search', asyncHandler(async (req, res) => {
   // ES 검색 결과 순서 유지 (유사도 점수 순)
   const experimentMap = new Map(experiments.map(e => [e.id.toString(), e]));
   const orderedExperiments = esResult.data
-    .map(r => experimentMap.get(r.id))
+    .map(r => experimentMap.get(String(r.id)))
     .filter(Boolean);
 
   // 데이터 가공
@@ -275,6 +276,33 @@ router.get('/search', asyncHandler(async (req, res) => {
       totalResults: esResult.total
     }
   });
+}));
+
+// ==========================================
+// POST /api/experiments/sync - Elasticsearch 동기화 (수동 트리거)
+// ==========================================
+router.post('/sync', authMiddleware, asyncHandler(async (req, res) => {
+  // 실제 운영 환경에서는 관리자 권한 체크 필요
+  console.log(`[API] Sync triggered by user ${req.user.username}`);
+
+  // 동기화 작업 시작 (오래 걸릴 수 있음)
+  const result = await syncAllExperiments();
+
+  if (result.success) {
+    res.json({
+      message: 'Elasticsearch sync completed successfully.',
+      stats: {
+        total: result.totalCount,
+        synced: result.syncedCount,
+        errors: result.errorCount
+      }
+    });
+  } else {
+    res.status(500).json({
+      error: 'Elasticsearch sync failed.',
+      details: result.error
+    });
+  }
 }));
 
 // ==========================================
@@ -977,12 +1005,26 @@ router.post('/:id/reproductions', authMiddleware, asyncHandler(async (req, res) 
 
   // 5. 버전의 재현 통계 업데이트
   const versionReproductions = await prisma.reproduction.findMany({
-    where: { versionId: targetVersion.id }
+    where: { versionId: targetVersion.id },
+    select: { score: true, success: true }
   });
 
   const totalCount = versionReproductions.length;
-  const successCount = versionReproductions.filter(r => r.success).length;
-  const reproductionRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0;
+
+  let reproductionRate = 0;
+  if (totalCount > 0) {
+    // 1. 평균 점수 계산 (0-100)
+    const totalScore = versionReproductions.reduce((sum, r) => sum + r.score, 0);
+    const averageScore = totalScore / totalCount;
+
+    // 2. 성공률 계산 (0-100)
+    const successCount = versionReproductions.filter(r => r.success).length;
+    const successRate = (successCount / totalCount) * 100;
+
+    // 3. 최종 가중치 점수 (점수 70% + 성공률 30%)
+    const weightedScore = (averageScore * 0.7) + (successRate * 0.3);
+    reproductionRate = Math.round(weightedScore);
+  }
 
   await prisma.experimentVersion.update({
     where: { id: targetVersion.id },
