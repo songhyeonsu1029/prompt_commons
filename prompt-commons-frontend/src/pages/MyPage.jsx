@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { Star, Beaker, User, Settings, CheckCircle, XCircle, Loader, AlertTriangle, FileText, Users } from 'lucide-react';
 import { Button, TabButton } from '../components';
@@ -11,31 +12,18 @@ const MyPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [myData, setMyData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
   // Modal State
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
 
-  useEffect(() => {
-    if (user?.username) {
-      fetchMyPageData(user.username)
-        .then(data => {
-          setMyData(data);
-        })
-        .catch(err => {
-          console.error("Failed to fetch My Page data:", err);
-          setError(err.message);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    }
-  }, [user]);
+  // Fetch My Page Data
+  const { data: myData, isLoading, error } = useQuery({
+    queryKey: ['user', 'me'],
+    queryFn: fetchMyPageData,
+    enabled: !!user?.username, // Only fetch if user is logged in
+  });
 
   const handleShowFollowers = async () => {
     setShowFollowersModal(true);

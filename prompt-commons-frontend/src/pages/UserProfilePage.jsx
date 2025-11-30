@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserByUsername, followUser, unfollowUser, getFollowers, getFollowing } from '../services/api';
@@ -10,68 +12,91 @@ const UserProfilePage = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
 
-  const [profileData, setProfileData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Follow System State
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followersCount, setFollowersCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
-  const [isFollowLoading, setIsFollowLoading] = useState(false);
-
   // Modal State
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
 
-  useEffect(() => {
-    setIsLoading(true);
-    getUserByUsername(username)
-      .then(data => {
-        setProfileData(data);
-        setIsFollowing(data.profile.isFollowing);
-        setFollowersCount(data.profile.stats.followers);
-        setFollowingCount(data.profile.stats.following);
-      })
-      .catch(err => {
-        console.error("Failed to fetch user profile:", err);
-        setError(err.message);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [username]);
+  const queryClient = useQueryClient();
 
-  const handleFollowToggle = async () => {
+  // Fetch User Profile
+  const { data: profileData, isLoading, error } = useQuery({
+    queryKey: ['user', username],
+    queryFn: () => getUserByUsername(username),
+    retry: 1,
+  });
+
+  // Follow Mutation
+  const followMutation = useMutation({
+    mutationFn: () => followUser(username),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['user', username] });
+      const previousData = queryClient.getQueryData(['user', username]);
+
+      // Optimistic Update
+      queryClient.setQueryData(['user', username], (old) => ({
+        ...old,
+        profile: {
+          ...old.profile,
+          isFollowing: true,
+          stats: {
+            ...old.profile.stats,
+            followers: old.profile.stats.followers + 1
+          }
+        }
+      }));
+      return { previousData };
+    },
+    onError: (err, newTodo, context) => {
+      queryClient.setQueryData(['user', username], context.previousData);
+      toast.error("Failed to follow user.");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', username] });
+    }
+  });
+
+  // Unfollow Mutation
+  const unfollowMutation = useMutation({
+    mutationFn: () => unfollowUser(username),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['user', username] });
+      const previousData = queryClient.getQueryData(['user', username]);
+
+      // Optimistic Update
+      queryClient.setQueryData(['user', username], (old) => ({
+        ...old,
+        profile: {
+          ...old.profile,
+          isFollowing: false,
+          stats: {
+            ...old.profile.stats,
+            followers: old.profile.stats.followers - 1
+          }
+        }
+      }));
+      return { previousData };
+    },
+    onError: (err, newTodo, context) => {
+      queryClient.setQueryData(['user', username], context.previousData);
+      toast.error("Failed to unfollow user.");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', username] });
+    }
+  });
+
+  const handleFollowToggle = () => {
     if (!currentUser) {
       navigate('/login');
       return;
     }
 
-    // Optimistic Update
-    const prevIsFollowing = isFollowing;
-    const prevFollowersCount = followersCount;
-
-    setIsFollowing(!isFollowing);
-    setFollowersCount(prevIsFollowing ? followersCount - 1 : followersCount + 1);
-    setIsFollowLoading(true);
-
-    try {
-      if (prevIsFollowing) {
-        await unfollowUser(username);
-      } else {
-        await followUser(username);
-      }
-    } catch (err) {
-      console.error("Follow action failed:", err);
-      // Revert on error
-      setIsFollowing(prevIsFollowing);
-      setFollowersCount(prevFollowersCount);
-      alert("Failed to update follow status. Please try again.");
-    } finally {
-      setIsFollowLoading(false);
+    if (profileData.profile.isFollowing) {
+      unfollowMutation.mutate();
+    } else {
+      followMutation.mutate();
     }
   };
 
@@ -145,14 +170,14 @@ const UserProfilePage = () => {
                   onClick={handleShowFollowers}
                   className="hover:bg-gray-50 px-3 py-2 rounded transition-colors"
                 >
-                  <div className="font-bold text-lg">{followersCount}</div>
+                  <div className="font-bold text-lg">{profile.stats.followers}</div>
                   <div className="text-sm text-gray-600">Followers</div>
                 </button>
                 <button
                   onClick={handleShowFollowing}
                   className="hover:bg-gray-50 px-3 py-2 rounded transition-colors"
                 >
-                  <div className="font-bold text-lg">{followingCount}</div>
+                  <div className="font-bold text-lg">{profile.stats.following}</div>
                   <div className="text-sm text-gray-600">Following</div>
                 </button>
               </div>
@@ -169,11 +194,11 @@ const UserProfilePage = () => {
               ) : (
                 <Button
                   onClick={handleFollowToggle}
-                  variant={isFollowing ? "outline" : "default"}
+                  variant={profile.isFollowing ? "outline" : "default"}
                   className="w-full"
-                  disabled={isFollowLoading}
+                  disabled={followMutation.isPending || unfollowMutation.isPending}
                 >
-                  {isFollowing ? 'Unfollow' : 'Follow'}
+                  {profile.isFollowing ? 'Unfollow' : 'Follow'}
                 </Button>
               )}
             </div>

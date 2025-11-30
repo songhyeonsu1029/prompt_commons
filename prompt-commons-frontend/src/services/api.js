@@ -8,13 +8,18 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000
 // ==========================================
 // API Request Helper
 // ==========================================
-const apiRequest = async (endpoint, options = {}) => {
-  const token = localStorage.getItem('token');
 
+let accessToken = null;
+
+export const setAccessToken = (token) => {
+  accessToken = token;
+};
+
+const apiRequest = async (endpoint, options = {}) => {
   const config = {
     headers: {
       'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
+      ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
       ...options.headers,
     },
     ...options,

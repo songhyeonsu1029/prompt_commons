@@ -7,3 +7,7 @@ export { default as CommentSection } from './CommentSection';
 export { default as ThemeToggle } from './ThemeToggle';
 export { default as DualCommentSystem } from './DualCommentSystem';
 export { default as TabButton } from './TabButton';
+export { default as ReliabilityCard } from './ReliabilityCard';
+export { default as ExperimentHeader } from './ExperimentHeader';
+export { default as VersionHistory } from './VersionHistory';
+export { default as DraftVersionModal } from './DraftVersionModal';

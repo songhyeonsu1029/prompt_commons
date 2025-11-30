@@ -1,37 +1,31 @@
-import { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { setAccessToken as setApiAccessToken } from '../services/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    try {
-      const storedUser = localStorage.getItem('user');
-      return storedUser ? JSON.parse(storedUser) : null;
-    } catch (error) {
-      console.error('Failed to parse user from localStorage', error);
-      return null;
-    }
-  });
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [user, setUser] = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
+  // State 대신 Ref 사용: 렌더링 유발 방지 및 useEffect 의존성 루프 해결
+  const isRefreshingRef = useRef(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const navigate = useNavigate();
 
-  // 토큰 갱신 함수
+  // ✅ 수정됨: 갱신된 Access Token을 반환하도록 변경
   const refreshTokens = useCallback(async () => {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken || isRefreshing) return false;
+    if (isRefreshingRef.current) return null; // 중복 호출 방지
 
-    setIsRefreshing(true);
+    isRefreshingRef.current = true;
     try {
-      // 쿠키를 사용하므로 body에 refreshToken을 보낼 필요 없음
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // 쿠키 포함
+        credentials: 'include', // HttpOnly 쿠키 전송
       });
 
       if (!response.ok) {
@@ -39,80 +33,49 @@ export const AuthProvider = ({ children }) => {
       }
 
       const data = await response.json();
-      localStorage.setItem('token', data.accessToken);
-      // refreshToken은 쿠키에 저장되므로 localStorage 저장 안 함
-      localStorage.setItem('user', JSON.stringify(data.user));
-      localStorage.setItem('tokenExpiry', Date.now() + data.expiresIn * 1000);
+
+      // 상태 업데이트
+      setAccessToken(data.accessToken);
       setUser(data.user);
-      return true;
+      setApiAccessToken(data.accessToken); // API 서비스에 토큰 설정
+
+      // ★ 핵심 수정: 갱신된 토큰을 즉시 반환 (State 업데이트를 기다리지 않음)
+      return data.accessToken;
     } catch (error) {
-      console.error('Token refresh failed:', error);
-      // 리프레시 실패 시 로그아웃
-      localStorage.removeItem('token');
-      // localStorage.removeItem('refreshToken'); // 제거
-      localStorage.removeItem('user');
-      localStorage.removeItem('tokenExpiry');
+      // 실패 시 로그아웃 처리 (조용히 처리)
+      setAccessToken(null);
       setUser(null);
-      return false;
+      setApiAccessToken(null);
+      return null;
     } finally {
-      setIsRefreshing(false);
+      isRefreshingRef.current = false;
     }
-  }, [isRefreshing]);
+  }, []); // 의존성 제거: API_BASE_URL은 상수, set 함수들은 안정적
 
-  // 토큰 만료 전 자동 갱신 (만료 1분 전)
+  // 앱 초기화 (새로고침 시 로그인 유지)
   useEffect(() => {
-    const tokenExpiry = localStorage.getItem('tokenExpiry');
-    // const refreshToken = localStorage.getItem('refreshToken'); // 쿠키 사용
-
-    if (!tokenExpiry || !user) return;
-
-    const expiryTime = parseInt(tokenExpiry);
-    const timeUntilExpiry = expiryTime - Date.now();
-    const refreshTime = timeUntilExpiry - 60000; // 만료 1분 전에 갱신
-
-    if (refreshTime <= 0) {
-      // 이미 만료됨 또는 곧 만료 -> 즉시 갱신
-      refreshTokens();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      refreshTokens();
-    }, refreshTime);
-
-    return () => clearTimeout(timer);
-  }, [user, refreshTokens]);
-
-  // 앱 시작 시 토큰 유효성 확인
-  useEffect(() => {
-    const checkAuth = async () => {
-      const token = localStorage.getItem('token');
-      const tokenExpiry = localStorage.getItem('tokenExpiry');
-
-      if (!token) return;
-
-      // 토큰 만료 확인
-      if (tokenExpiry && Date.now() > parseInt(tokenExpiry)) {
-        // 만료됨 -> 리프레시 시도
-        const success = await refreshTokens();
-        if (!success) {
-          toast.error('Session expired. Please login again.');
-        }
-      }
+    const initAuth = async () => {
+      await refreshTokens();
+      setIsLoading(false);
     };
-
-    checkAuth();
+    initAuth();
   }, [refreshTokens]);
+
+  // 주기적 갱신 (14분마다)
+  useEffect(() => {
+    if (!accessToken) return;
+    const interval = setInterval(() => {
+      refreshTokens();
+    }, 14 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [accessToken, refreshTokens]);
 
   const login = async (userData) => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userData.email,
-          password: userData.password,
-        }),
+        body: JSON.stringify(userData),
         credentials: 'include',
       });
 
@@ -122,13 +85,9 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data.error || 'Login failed');
       }
 
-      // 토큰 저장
-      localStorage.setItem('token', data.accessToken || data.token);
-      // localStorage.setItem('refreshToken', data.refreshToken); // 쿠키 사용
-      localStorage.setItem('user', JSON.stringify(data.user));
-      localStorage.setItem('tokenExpiry', Date.now() + (data.expiresIn || 3600) * 1000);
-
+      setAccessToken(data.accessToken);
       setUser(data.user);
+      setApiAccessToken(data.accessToken); // API 서비스에 토큰 설정
       toast.success('Login Successful!');
       navigate('/');
     } catch (error) {
@@ -142,15 +101,10 @@ export const AuthProvider = ({ children }) => {
       const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userData.email,
-          username: userData.username,
-          password: userData.password,
-        }),
+        body: JSON.stringify(userData),
       });
 
       const data = await response.json();
-
       if (!response.ok) {
         throw new Error(data.error || 'Registration failed');
       }
@@ -173,37 +127,39 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout failed:', error);
     }
-
-    localStorage.removeItem('token');
-    // localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('tokenExpiry');
+    setAccessToken(null);
     setUser(null);
+    setApiAccessToken(null); // API 서비스 토큰 초기화
     toast.success('Logged out successfully.');
     navigate('/login');
   };
 
-  // API 요청용 토큰 가져오기 (필요 시 갱신)
+  // ✅ 수정됨: refreshTokens의 반환값을 사용하도록 변경
   const getValidToken = useCallback(async () => {
-    const tokenExpiry = localStorage.getItem('tokenExpiry');
+    // 1. 메모리에 토큰이 있으면(로그인 상태) 바로 반환
+    if (accessToken) return accessToken;
 
-    // 토큰이 곧 만료되거나 만료됨 -> 갱신
-    if (tokenExpiry && Date.now() > parseInt(tokenExpiry) - 30000) {
-      await refreshTokens();
-    }
-
-    return localStorage.getItem('token');
-  }, [refreshTokens]);
+    // 2. 토큰이 없으면(새로고침 직후 등) 리프레시 시도하고, 그 결과(새 토큰)를 반환
+    // 이전에는 여기서 state인 accessToken을 반환해서 null 문제가 발생했음
+    const newAccessToken = await refreshTokens();
+    return newAccessToken;
+  }, [accessToken, refreshTokens]);
 
   const value = {
     user,
+    accessToken,
     login,
     register,
     logout,
     refreshTokens,
     getValidToken,
     isAuthenticated: !!user,
+    isLoading,
   };
+
+  if (isLoading) {
+    return <div className="flex justify-center items-center h-screen">Loading...</div>;
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

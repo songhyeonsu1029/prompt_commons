@@ -16,7 +16,7 @@ const REFRESH_TOKEN_EXPIRES = '7d';   // Refresh 토큰: 7일
 const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production', // 프로덕션에서는 true (HTTPS)
-  sameSite: 'strict',
+  sameSite: 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000 // 7일
 };
 

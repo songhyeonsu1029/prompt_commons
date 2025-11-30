@@ -1,6 +1,7 @@
 // src/pages/ReproductionWorkbenchPage.jsx
 
 import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button, Badge } from '../components';
-import { fetchExperimentById, submitVerificationReport} from '../services/api';
+import { fetchExperimentById, submitVerificationReport } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const ReproductionWorkbenchPage = () => {
@@ -24,38 +25,51 @@ const ReproductionWorkbenchPage = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { user } = useAuth();
-    const [experiment, setExperiment] = useState(null);
+
     const [selectedVersion, setSelectedVersion] = useState(null);
     const [versionData, setVersionData] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
 
     const [currentStep, setCurrentStep] = useState(1);
     const [modifiedPrompt, setModifiedPrompt] = useState('');
     const [score, setScore] = useState(50);
     const [feedback, setFeedback] = useState('');
     const [isCopied, setIsCopied] = useState(false);
+    const queryClient = useQueryClient();
+
+    // Fetch Experiment Data
+    const { data: experiment, isLoading, error } = useQuery({
+        queryKey: ['experiment', id],
+        queryFn: () => fetchExperimentById(id),
+    });
+
+    // Submit Report Mutation
+    const submitMutation = useMutation({
+        mutationFn: (report) => submitVerificationReport(id, report, user, selectedVersion),
+        onSuccess: () => {
+            toast.success('Verification report submitted!');
+            queryClient.invalidateQueries({ queryKey: ['experiment', id] });
+            queryClient.invalidateQueries({ queryKey: ['user', 'me'] });
+            navigate(`/experiments/${id}`);
+        },
+        onError: (err) => {
+            console.error('Failed to submit report:', err);
+            toast.error('Failed to submit report.');
+        }
+    });
 
     useEffect(() => {
-        fetchExperimentById(id)
-            .then(data => {
-                setExperiment(data);
-                // Get version from URL params or use active_version
-                const versionParam = searchParams.get('version') || data.active_version;
-                setSelectedVersion(versionParam);
-                // Find version data
-                const vData = data.versions.find(v => v.version_number === versionParam) || data.versions[0];
-                setVersionData(vData);
+        if (experiment) {
+            // Get version from URL params or use active_version
+            const versionParam = searchParams.get('version') || experiment.active_version;
+            setSelectedVersion(versionParam);
+            // Find version data
+            const vData = experiment.versions.find(v => v.version_number === versionParam) || experiment.versions[0];
+            setVersionData(vData);
+            if (!modifiedPrompt) {
                 setModifiedPrompt(vData.prompt_text);
-            })
-            .catch(err => {
-                console.error("Failed to fetch experiment:", err);
-                setError(err.message);
-            })
-            .finally(() => {
-                setIsLoading(false);
-            });
-    }, [id, searchParams]);
+            }
+        }
+    }, [experiment, searchParams]);
 
     const handleNext = () => {
         if (currentStep < 4) setCurrentStep(currentStep + 1);
@@ -81,7 +95,7 @@ const ReproductionWorkbenchPage = () => {
             setTimeout(() => setIsCopied(false), 2000);
         });
     };
-    
+
     const handleSubmit = () => {
         if (!user) {
             toast.error('You must be logged in to submit a report.');
@@ -96,15 +110,7 @@ const ReproductionWorkbenchPage = () => {
             status: 'submitted'
         };
 
-        submitVerificationReport(id, report, user, selectedVersion)
-            .then(() => {
-                toast.success('Verification report submitted!');
-                navigate(`/experiments/${id}`);
-            })
-            .catch(err => {
-                console.error('Failed to submit report:', err);
-                toast.error('Failed to submit report.');
-            });
+        submitMutation.mutate(report);
     };
 
     if (isLoading) return <div className="flex justify-center items-center h-screen">Loading workbench...</div>;
@@ -121,7 +127,7 @@ const ReproductionWorkbenchPage = () => {
     return (
         <div className="h-[calc(100vh-64px)] flex flex-col bg-gray-50">
             <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm z-10">
-                 <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4">
                     <Button variant="ghost" size="sm" onClick={() => navigate(`/experiments/${id}`)}>
                         <ArrowLeft className="w-4 h-4 mr-2" /> Exit
                     </Button>
@@ -134,7 +140,7 @@ const ReproductionWorkbenchPage = () => {
                 <div className="flex items-center gap-2">
                     {steps.map((step, idx) => (
                         <div key={step.id} className="flex items-center">
-                             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${currentStep === step.id
+                            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${currentStep === step.id
                                 ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-500 ring-offset-1'
                                 : currentStep > step.id
                                     ? 'bg-green-100 text-green-700'
@@ -153,10 +159,10 @@ const ReproductionWorkbenchPage = () => {
                 <div className="w-32" />
             </header>
 
-             <div className="flex-1 flex overflow-hidden">
-                 <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto p-6 hidden md:block">
+            <div className="flex-1 flex overflow-hidden">
+                <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto p-6 hidden md:block">
                     <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Reference</h2>
-                     <div className="mb-6">
+                    <div className="mb-6">
                         <h3 className="font-semibold text-gray-900 mb-2">Original Prompt</h3>
                         <div className="bg-gray-50 p-4 rounded-md border border-gray-200 text-sm font-mono whitespace-pre-wrap text-gray-700">
                             {versionData.prompt_text}
@@ -191,9 +197,9 @@ const ReproductionWorkbenchPage = () => {
 
                 <div className="flex-1 bg-gray-50 overflow-y-auto p-6 flex flex-col items-center">
                     <div className="w-full max-w-3xl bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[500px]">
-                        
+
                         <div className="flex-1 p-8">
-                             {currentStep === 1 && (
+                            {currentStep === 1 && (
                                 <div className="space-y-6">
                                     <div className="text-center mb-8">
                                         <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -319,8 +325,8 @@ const ReproductionWorkbenchPage = () => {
                                         Next Step <ArrowRight className="w-4 h-4 ml-2" />
                                     </Button>
                                 ) : (
-                                    <Button variant="primary" onClick={handleSubmit} className="bg-green-600 hover:bg-green-700 text-white">
-                                        Submit Report <CheckCircle className="w-4 h-4 ml-2" />
+                                    <Button variant="primary" onClick={handleSubmit} className="bg-green-600 hover:bg-green-700 text-white" disabled={submitMutation.isPending}>
+                                        {submitMutation.isPending ? 'Submitting...' : 'Submit Report'} <CheckCircle className="w-4 h-4 ml-2" />
                                     </Button>
                                 )}
                             </div>

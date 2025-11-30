@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import PropTypes from 'prop-types';
 import toast from 'react-hot-toast';
 import { useForm, useWatch } from 'react-hook-form';
@@ -47,21 +48,26 @@ const NewExperimentPage = () => {
 
   const promptText = useWatch({ control, name: 'prompt_text' });
 
+  const queryClient = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: (data) => createExperiment(data, user),
+    onSuccess: (newExperiment) => {
+      toast.success('Experiment created successfully!');
+      queryClient.invalidateQueries({ queryKey: ['experiments'] });
+      navigate(`/experiments/${newExperiment.id}`);
+    },
+    onError: (err) => {
+      console.error('Failed to create experiment:', err);
+      toast.error('Failed to create experiment.');
+    }
+  });
+
   const onSubmit = (data) => {
     if (!user) {
       toast.error('You must be logged in to create an experiment.');
       return;
     }
-
-    createExperiment(data, user)
-      .then((newExperiment) => {
-        toast.success('Experiment created successfully!');
-        navigate(`/experiments/${newExperiment.id}`);
-      })
-      .catch((err) => {
-        console.error('Failed to create experiment:', err);
-        toast.error('Failed to create experiment.');
-      });
+    createMutation.mutate(data);
   };
 
   const handleCancel = () => {
@@ -205,8 +211,8 @@ const NewExperimentPage = () => {
             <Button type="button" variant="outline" onClick={handleCancel}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary">
-              Register Experiment
+            <Button type="submit" variant="primary" disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating...' : 'Register Experiment'}
             </Button>
           </div>
         </form>

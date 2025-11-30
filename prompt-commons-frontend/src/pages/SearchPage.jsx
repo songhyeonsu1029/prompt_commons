@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { SearchBar, Badge, Button, Pagination } from '../components';
 import { Sparkles, SearchX, Eye, GitCommitHorizontal, Loader } from 'lucide-react';
@@ -19,33 +20,20 @@ const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [results, setResults] = useState([]);
-  const [pagination, setPagination] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-
   const query = searchParams.get('q') || '';
   const model = searchParams.get('model') || 'All';
   const rate = searchParams.get('rate') || 'All';
   const page = parseInt(searchParams.get('page') || '1');
 
-  useEffect(() => {
-    const performSearch = () => {
-      setIsLoading(true);
-      searchExperiments({ query, model, rate, page })
-        .then(response => {
-          setResults(response.data || []);
-          setPagination(response.pagination);
-        })
-        .catch(err => {
-          console.error('Search error:', err);
-          setResults([]);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    };
-    performSearch();
-  }, [query, model, rate, page]);
+  // Search Experiments
+  const { data: searchData, isLoading } = useQuery({
+    queryKey: ['experiments', 'search', { query, model, rate, page }],
+    queryFn: () => searchExperiments({ query, model, rate, page }),
+    placeholderData: keepPreviousData,
+  });
+
+  const results = searchData?.data || [];
+  const pagination = searchData?.pagination || null;
 
   const handleFilterChange = (key, value) => {
     setSearchParams((prev) => {

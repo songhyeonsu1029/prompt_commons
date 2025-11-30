@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components';
 import { fetchWeeklyTopExperiments } from '../services/api';
@@ -6,23 +7,11 @@ import { Loader, TrendingUp } from 'lucide-react';
 
 export default function WeeklyTopPage() {
   const navigate = useNavigate();
-  const [experiments, setExperiments] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // 주간 인기 실험 Top 10 로드
-  useEffect(() => {
-    setIsLoading(true);
-    fetchWeeklyTopExperiments()
-      .then(response => {
-        setExperiments(response.data);
-      })
-      .catch(error => {
-        console.error("Failed to fetch weekly top experiments:", error);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, []);
+  // Fetch Weekly Top Experiments
+  const { data: experiments = [], isLoading } = useQuery({
+    queryKey: ['experiments', 'weekly-top'],
+    queryFn: () => fetchWeeklyTopExperiments().then(res => res.data),
+  });
 
   const handleCardClick = (id) => {
     navigate(`/experiments/${id}`);

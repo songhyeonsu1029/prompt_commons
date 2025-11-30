@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Button, SearchBar, Card, Pagination, Badge } from '../components';
 import { fetchExperiments } from '../services/api';
@@ -35,7 +35,7 @@ export default function ExperimentsPage() {
       sort: sortBy,
       q: searchQuery || undefined
     }),
-    keepPreviousData: true, // 페이지네이션 시 깜빡임 방지 (v5에서는 placeholderData: keepPreviousData 사용 권장하지만 간단히 처리)
+    placeholderData: keepPreviousData,
   });
 
   const experiments = data?.data || [];

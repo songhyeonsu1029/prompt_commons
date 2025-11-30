@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import PropTypes from 'prop-types';
 import { MessageSquare, CheckCircle, ThumbsUp, CornerDownRight, User } from 'lucide-react';
 import { Button, Badge } from './index';
@@ -13,41 +14,54 @@ const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], on
     const [replyText, setReplyText] = useState('');
     const [replyingTo, setReplyingTo] = useState(null); // ID of reproduction being replied to
 
+    // Post Comment Mutation
+    const commentMutation = useMutation({
+        mutationFn: () => postComment(experimentId, user, newComment),
+        onSuccess: () => {
+            toast.success('Comment posted');
+            setNewComment('');
+            onUpdate();
+        },
+        onError: () => toast.error('Failed to post comment')
+    });
+
+    // Vote Mutation
+    const voteMutation = useMutation({
+        mutationFn: (reproductionId) => voteReproduction(reproductionId, user.id),
+        onSuccess: () => {
+            toast.success('Upvoted!');
+            onUpdate();
+        },
+        onError: () => toast.error('Failed to vote')
+    });
+
+    // Reply Mutation
+    const replyMutation = useMutation({
+        mutationFn: ({ reproductionId, text }) => replyToReproduction(reproductionId, user, text),
+        onSuccess: () => {
+            toast.success('Reply posted');
+            setReplyText('');
+            setReplyingTo(null);
+            onUpdate();
+        },
+        onError: () => toast.error('Failed to reply')
+    });
+
     const handlePostComment = () => {
         if (!user) return toast.error('Please login to comment');
         if (!newComment.trim()) return;
-
-        postComment(experimentId, user, newComment)
-            .then(() => {
-                toast.success('Comment posted');
-                setNewComment('');
-                onUpdate(); // Refresh data
-            })
-            .catch(() => toast.error('Failed to post comment'));
+        commentMutation.mutate();
     };
 
     const handleVote = (reproductionId) => {
         if (!user) return toast.error('Please login to vote');
-        voteReproduction(reproductionId, user.id)
-            .then(() => {
-                toast.success('Upvoted!');
-                onUpdate();
-            })
-            .catch(() => toast.error('Failed to vote'));
+        voteMutation.mutate(reproductionId);
     };
 
     const handleReply = (reproductionId) => {
         if (!user) return toast.error('Please login to reply');
         if (!replyText.trim()) return;
-
-        replyToReproduction(reproductionId, user, replyText)
-            .then(() => {
-                toast.success('Reply posted');
-                setReplyText('');
-                setReplyingTo(null);
-                onUpdate();
-            })
-            .catch(() => toast.error('Failed to reply'));
+        replyMutation.mutate({ reproductionId, text: replyText });
     };
 
     return (
@@ -57,8 +71,8 @@ const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], on
                 <button
                     onClick={() => setActiveTab('discussion')}
                     className={`flex-1 py-4 text-sm font-medium text-center transition-colors flex items-center justify-center gap-2 ${activeTab === 'discussion'
-                            ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
-                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                         }`}
                 >
                     <MessageSquare className="w-4 h-4" />
@@ -67,8 +81,8 @@ const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], on
                 <button
                     onClick={() => setActiveTab('verification')}
                     className={`flex-1 py-4 text-sm font-medium text-center transition-colors flex items-center justify-center gap-2 ${activeTab === 'verification'
-                            ? 'text-green-600 border-b-2 border-green-600 bg-green-50/50'
-                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        ? 'text-green-600 border-b-2 border-green-600 bg-green-50/50'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                         }`}
                 >
                     <CheckCircle className="w-4 h-4" />
@@ -92,8 +106,8 @@ const DualCommentSystem = ({ experimentId, comments = [], reproductions = [], on
                                 rows={3}
                             />
                             <div className="flex justify-end mt-2">
-                                <Button size="sm" onClick={handlePostComment} disabled={!newComment.trim()}>
-                                    Post Comment
+                                <Button size="sm" onClick={handlePostComment} disabled={!newComment.trim() || commentMutation.isPending}>
+                                    {commentMutation.isPending ? 'Posting...' : 'Post Comment'}
                                 </Button>
                             </div>
                         </div>

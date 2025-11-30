@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Button, SearchBar, Card, Pagination } from '../components';
 import { fetchExperiments, fetchPlatformStats } from '../services/api';
@@ -8,38 +9,22 @@ const QUICK_FILTERS = ['#GPT-4o', '#Claude-3.5', '#Coding', '#RAG', '#ImageGen']
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const [experiments, setExperiments] = useState([]);
-  const [pagination, setPagination] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState(null);
+  // Fetch Platform Stats
+  const { data: stats } = useQuery({
+    queryKey: ['stats'],
+    queryFn: fetchPlatformStats,
+  });
 
-  // 통계 데이터 로드
-  useEffect(() => {
-    fetchPlatformStats()
-      .then(data => {
-        setStats(data);
-      })
-      .catch(error => {
-        console.error("Failed to fetch stats:", error);
-      });
-  }, []);
+  // Fetch Experiments (Latest)
+  const { data: experimentsData, isLoading } = useQuery({
+    queryKey: ['experiments', 'latest', { page: currentPage }],
+    queryFn: () => fetchExperiments({ page: currentPage, limit: 6 }),
+    placeholderData: keepPreviousData,
+  });
 
-  // 실험 목록 로드 (최신순)
-  useEffect(() => {
-    setIsLoading(true);
-    fetchExperiments({ page: currentPage, limit: 6 })
-      .then(response => {
-        setExperiments(response.data);
-        setPagination(response.pagination);
-      })
-      .catch(error => {
-        console.error("Failed to fetch experiments:", error);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [currentPage]);
+  const experiments = experimentsData?.data || [];
+  const pagination = experimentsData?.pagination || null;
 
   const handleSearch = (query) => {
     navigate(`/search?q=${encodeURIComponent(query)}`);
@@ -133,7 +118,7 @@ export default function HomePage() {
 
           {isLoading ? (
             <div className="flex justify-center items-center py-20">
-                <Loader className="w-12 h-12 animate-spin text-blue-600" />
+              <Loader className="w-12 h-12 animate-spin text-blue-600" />
             </div>
           ) : (
             <>
