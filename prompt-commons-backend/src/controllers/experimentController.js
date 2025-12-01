@@ -20,11 +20,13 @@ exports.searchExperiments = asyncHandler(async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = Math.min(parseInt(req.query.limit) || 20, 20);
     const query = req.query.q || '';
+    const tag = req.query.tag;
     const model = req.query.model;
     const rate = parseInt(req.query.rate) || 0;
 
     const result = await experimentService.searchExperiments({
         query,
+        tag,
         model,
         rate,
         page,

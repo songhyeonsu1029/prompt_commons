@@ -108,23 +108,73 @@ Respond ONLY in this JSON format, no other text:
 }
 
 /**
- * 실험 데이터를 Elasticsearch에 인덱싱
+ * 실험에 대한 3가지 검색 관점(Problem, Tech, Solution) 생성
+ */
+async function generateSearchPerspectives(experiment) {
+  try {
+    const prompt = `
+Analyze this programming experiment and generate 3 distinct, short search queries a developer would type to find this.
+Focus on these 3 perspectives:
+1. Problem: The error, bug, or issue being solved (e.g., "fix react re-render", "memory leak loop").
+2. Tech: The specific technology, library, or version (e.g., "Next.js 14 server actions", "Python 3.11 asyncio").
+3. Solution: The outcome, benefit, or technique used (e.g., "seo optimization guide", "reduce latency 50%").
+
+Experiment Title: ${experiment.title}
+Prompt Text: ${experiment.promptText}
+
+Respond ONLY in this JSON format:
+{
+  "problem": "search phrase for problem",
+  "tech": "search phrase for tech",
+  "solution": "search phrase for solution"
+}
+`;
+
+    const result = await queryModel.generateContent(prompt);
+    const response = result.response.text().trim();
+
+    let jsonText = response;
+    if (response.includes('```')) {
+      jsonText = response.match(/\{[\s\S]*\}/)?.[0] || response;
+    }
+
+    return JSON.parse(jsonText);
+  } catch (error) {
+    console.error('[ES Service] Perspective generation failed:', error.message);
+    // Fallback
+    return {
+      problem: experiment.title,
+      tech: experiment.aiModel || '',
+      solution: experiment.title
+    };
+  }
+}
+
+/**
+ * 실험 데이터를 Elasticsearch에 인덱싱 (Multi-Vector)
  */
 async function indexExperiment(params) {
   return withRetry(async () => {
     try {
       const { id, title, description, promptText, aiModel, reproductionRate, tags, createdAt } = params;
 
-      // 검색에 사용할 텍스트 조합
-      const textToEmbed = `Title: ${title}\nDescription: ${description || ''}\nPrompt: ${promptText}`;
+      // 1. Generate Search Perspectives
+      const perspectives = await generateSearchPerspectives({ title, promptText, aiModel });
 
-      // Gemini로 임베딩 생성
-      let embedding = null;
+      // 2. Generate Embeddings for each perspective
+      // Sequential generation to respect rate limits
+      let vec_problem = null;
+      let vec_tech = null;
+      let vec_solution = null;
+
       try {
-        embedding = await getEmbedding(textToEmbed);
+        vec_problem = await getEmbedding(perspectives.problem);
+        await sleep(500);
+        vec_tech = await getEmbedding(perspectives.tech);
+        await sleep(500);
+        vec_solution = await getEmbedding(perspectives.solution);
       } catch (err) {
         console.error(`[ES Service] Embedding generation failed for ${id}: ${err.message}`);
-        // 임베딩 실패해도 텍스트 검색은 되도록 진행
       }
 
       // Elasticsearch에 저장할 문서
@@ -136,12 +186,18 @@ async function indexExperiment(params) {
         aiModel,
         reproductionRate: reproductionRate || 0,
         tags: tags || [],
-        createdAt
-      };
+        createdAt,
 
-      if (embedding) {
-        doc.embedding = embedding;
-      }
+        // Text Fields
+        text_problem: perspectives.problem,
+        text_tech: perspectives.tech,
+        text_solution: perspectives.solution,
+
+        // Vector Fields
+        vec_problem: vec_problem || [],
+        vec_tech: vec_tech || [],
+        vec_solution: vec_solution || []
+      };
 
       // Upsert (인덱싱)
       await esClient.index({
@@ -150,7 +206,7 @@ async function indexExperiment(params) {
         document: doc
       });
 
-      console.log(`[ES Service] Indexed Experiment ID: ${id}`);
+      console.log(`[ES Service] Indexed Experiment ID: ${id} with Multi-Vectors`);
       return { success: true };
 
     } catch (error) {
@@ -163,11 +219,11 @@ async function indexExperiment(params) {
 /**
  * 자연어 검색(하이브리드: 벡터 유사도 + 텍스트 매칭)
  */
-async function semanticSearch({ query, model, minRate = 0, page = 1, limit = 10 }) {
+async function semanticSearch({ query, tag, model, minRate = 0, page = 1, limit = 10 }) {
   try {
-    // 1. 쿼리 검증
-    const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 2) {
+    // 1. 쿼리 검증 (태그 검색인 경우 쿼리 길이 제한 무시)
+    const trimmedQuery = query ? query.trim() : '';
+    if (!tag && trimmedQuery.length < 2) {
       return { success: true, data: [], total: 0, message: 'Query must be at least 2 characters' };
     }
 
@@ -179,108 +235,185 @@ async function semanticSearch({ query, model, minRate = 0, page = 1, limit = 10 
     if (minRate > 0) {
       filters.push({ range: { reproductionRate: { gte: minRate } } });
     }
-
-    // 3. 검색 모드 결정 (3단어 이상 = 자연어 검색)
-    const queryWords = trimmedQuery.split(/\s+/).length;
-    const isNaturalLanguage = queryWords >= 3;
+    // 태그 필터 추가
+    if (tag) {
+      filters.push({ term: { tags: tag } });
+    }
 
     let searchBody;
     let searchMode = 'keyword';
-    let MIN_SCORE = 0.65; // 기본 임계값
+    let MIN_SCORE = 0.0; // 태그 검색 시 점수 무관하게 반환
 
-    if (isNaturalLanguage) {
-      searchMode = 'semantic';
-      MIN_SCORE = 0.55; // 자연어 검색은 조금 더 관대하게 (0.6 -> 0.55 조정)
-
-      // 3-1. AI 쿼리 분석
-      let queryAnalysis = await analyzeQuery(trimmedQuery);
-
-      // 3-2. 확장된 쿼리로 임베딩 생성
-      let embedding = null;
-      try {
-        embedding = await getEmbedding(queryAnalysis.expandedQuery);
-      } catch (err) { } //
-
-      if (embedding) {
-        // 3-3. 하이브리드 검색 (벡터 + 키워드 보조)
-        searchBody = {
-          knn: {
-            field: 'embedding',
-            query_vector: embedding,
-            k: 100,
-            num_candidates: 200,
-            filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
-            boost: 0.5 // 벡터 비중을 조금 낮추고
-          },
-          query: {
-            bool: {
-              should: [
-                // 키워드 매칭 (제목에 가중치 대폭 부여)
-                {
-                  multi_match: {
-                    query: trimmedQuery, // 원본 쿼리 사용
-                    fields: ['title^5', 'tags^3', 'promptText^1'],
-                    type: 'best_fields',
-                    boost: 0.5 // 키워드 비중
-                  }
-                }
-              ],
-              filter: filters
-            }
+    // 태그 검색이 있는 경우 (쿼리가 없어도 됨)
+    if (tag) {
+      searchMode = 'tag_filter';
+      searchBody = {
+        query: {
+          bool: {
+            must: trimmedQuery ? { multi_match: { query: trimmedQuery, fields: ['title^3', 'promptText'], fuzziness: 'AUTO' } } : { match_all: {} },
+            filter: filters
           }
-        };
-      } else {
-        // 임베딩 실패 시 키워드 검색 Fallback
-        searchMode = 'keyword_fallback';
-        searchBody = {
-          query: {
-            bool: {
-              should: [
-                { multi_match: { query: queryAnalysis.expandedQuery, fields: ['title^3', 'description', 'promptText'], boost: 2.0 } }
-              ],
-              filter: filters
-            }
-          }
-        };
-      }
-
+        },
+        sort: [
+          { createdAt: { order: "desc" } } // 태그 검색 시 최신순 정렬
+        ]
+      };
     } else {
-      // 4. 단순 키워드 검색 (3단어 미만)
-      searchMode = 'keyword';
-      MIN_SCORE = 0.68; // 키워드 검색은 정확도 중요
+      // 기존 검색 로직 (자연어/키워드)
+      MIN_SCORE = 0.65; // 기본 임계값
 
-      // 짧은 단어도 임베딩을 시도는 해봄 (하이브리드)
-      let embedding = null;
-      try { embedding = await getEmbedding(trimmedQuery); } catch (e) { } //
+      // 3. 검색 모드 결정 (3단어 이상 = 자연어 검색)
+      const queryWords = trimmedQuery.split(/\s+/).length;
+      const isNaturalLanguage = queryWords >= 3;
 
-      if (embedding) {
-        searchBody = {
-          knn: {
-            field: 'embedding',
-            query_vector: embedding,
-            k: 50,
-            num_candidates: 100,
-            filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
-            boost: 0.3
-          },
-          query: {
-            bool: {
-              should: [
-                { multi_match: { query: trimmedQuery, fields: ['title^10', 'tags^5', 'promptText'], fuzziness: 'AUTO', boost: 0.7 } }
-              ],
-              filter: filters
+      if (isNaturalLanguage) {
+        searchMode = 'semantic';
+        MIN_SCORE = 0.55; // 자연어 검색은 조금 더 관대하게 (0.6 -> 0.55 조정)
+
+        // 3-1. AI 쿼리 분석 (Gemini로 키워드 추출 + 의도 파악)
+        let queryAnalysis = await analyzeQuery(trimmedQuery);
+
+        // 3-2. 확장된 쿼리로 임베딩 생성
+        let embedding = null;
+        try {
+          embedding = await getEmbedding(queryAnalysis.expandedQuery);
+        } catch (err) { } //
+
+        if (embedding) {
+          // 3-3. 하이브리드 검색 (Multi-Vector + 추출된 키워드 매칭)
+          // Gemini가 추출한 키워드를 검색 쿼리로 사용
+          const extractedKeywords = queryAnalysis.keywords.join(' ');
+
+          searchBody = {
+            knn: [
+              {
+                field: 'vec_problem',
+                query_vector: embedding,
+                k: 50,
+                num_candidates: 200,
+                filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
+                boost: 0.3
+              },
+              {
+                field: 'vec_tech',
+                query_vector: embedding,
+                k: 50,
+                num_candidates: 200,
+                filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
+                boost: 0.3
+              },
+              {
+                field: 'vec_solution',
+                query_vector: embedding,
+                k: 50,
+                num_candidates: 200,
+                filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
+                boost: 0.4
+              }
+            ],
+            query: {
+              bool: {
+                should: [
+                  // 1) 추출된 키워드로 정확한 매칭 (높은 가중치)
+                  {
+                    multi_match: {
+                      query: extractedKeywords,
+                      fields: ['title^7', 'tags^5', 'promptText^2', 'text_problem^3', 'text_tech^3', 'text_solution^3'],
+                      type: 'best_fields',
+                      boost: 0.6 // 추출된 키워드에 높은 비중
+                    }
+                  },
+                  // 2) 원본 쿼리로도 매칭 (보조적 역할, 낮은 가중치)
+                  {
+                    multi_match: {
+                      query: trimmedQuery,
+                      fields: ['title^3', 'description^1', 'promptText^1', 'text_problem', 'text_tech', 'text_solution'],
+                      type: 'best_fields',
+                      fuzziness: 'AUTO',
+                      boost: 0.3 // 원본 쿼리는 보조
+                    }
+                  }
+                ],
+                filter: filters
+              }
             }
-          }
-        };
+          };
+
+          console.log(`[ES Service] Multi-Vector Search - Original: "${trimmedQuery}", Keywords: "${extractedKeywords}", Intent: "${queryAnalysis.intent}"`);
+        } else {
+          // 임베딩 실패 시 키워드 검색 Fallback
+          searchMode = 'keyword_fallback';
+          const extractedKeywords = queryAnalysis.keywords.join(' ');
+
+          searchBody = {
+            query: {
+              bool: {
+                should: [
+                  { multi_match: { query: extractedKeywords, fields: ['title^5', 'tags^3', 'promptText', 'text_problem^2', 'text_tech^2', 'text_solution^2'], boost: 2.5 } },
+                  { multi_match: { query: queryAnalysis.expandedQuery, fields: ['title^3', 'description', 'promptText'], boost: 1.5 } }
+                ],
+                filter: filters
+              }
+            }
+          };
+        }
+
       } else {
-        searchBody = {
-          query: {
-            bool: {
-              must: { multi_match: { query: trimmedQuery, fields: ['title^3', 'tags^2', 'promptText'], fuzziness: 'AUTO' } },
-              filter: filters
+        // 4. 단순 키워드 검색 (3단어 미만)
+        searchMode = 'keyword';
+        MIN_SCORE = 0.68; // 키워드 검색은 정확도 중요
+
+        // 짧은 단어도 임베딩을 시도는 해봄 (하이브리드)
+        let embedding = null;
+        try { embedding = await getEmbedding(trimmedQuery); } catch (e) { } //
+
+        if (embedding) {
+          searchBody = {
+            knn: [
+              {
+                field: 'vec_problem',
+                query_vector: embedding,
+                k: 30,
+                num_candidates: 100,
+                filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
+                boost: 0.2
+              },
+              {
+                field: 'vec_tech',
+                query_vector: embedding,
+                k: 30,
+                num_candidates: 100,
+                filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
+                boost: 0.2
+              },
+              {
+                field: 'vec_solution',
+                query_vector: embedding,
+                k: 30,
+                num_candidates: 100,
+                filter: filters.length > 0 ? { bool: { filter: filters } } : undefined,
+                boost: 0.2
+              }
+            ],
+            query: {
+              bool: {
+                should: [
+                  { multi_match: { query: trimmedQuery, fields: ['title^10', 'tags^5', 'promptText', 'text_problem', 'text_tech', 'text_solution'], fuzziness: 'AUTO', boost: 0.7 } }
+                ],
+                filter: filters
+              }
             }
-          }
-        };
+          };
+        } else {
+          searchBody = {
+            query: {
+              bool: {
+                must: { multi_match: { query: trimmedQuery, fields: ['title^3', 'tags^2', 'promptText', 'text_problem', 'text_tech', 'text_solution'], fuzziness: 'AUTO' } },
+                filter: filters
+              }
+            }
+          };
+        }
       }
     }
 
@@ -296,11 +429,11 @@ async function semanticSearch({ query, model, minRate = 0, page = 1, limit = 10 
     const hits = response.hits.hits;
 
     // 6. 점수 정규화 및 필터링
-    const maxScore = hits.length > 0 ? hits[0]._score : 1;
+    const maxScore = hits.length > 0 ? (hits[0]._score || 1) : 1;
     const filteredHits = hits
       .map(hit => ({
         ...hit,
-        _normalizedScore: hit._score / maxScore
+        _normalizedScore: (hit._score || 1) / maxScore
       }))
       .filter(hit => hit._normalizedScore >= MIN_SCORE);
 
@@ -322,7 +455,7 @@ async function semanticSearch({ query, model, minRate = 0, page = 1, limit = 10 
       score: hit._normalizedScore
     }));
 
-    console.log(`[ES Service] Search (${searchMode}): Query="${trimmedQuery}", Hits=${hits.length} -> Filtered=${total}`);
+    console.log(`[ES Service] Search (${searchMode}): Query="${trimmedQuery}", Tag="${tag || ''}", Hits=${hits.length} -> Filtered=${total}`);
 
     return {
       success: true,
@@ -427,19 +560,30 @@ async function syncAllExperiments() {
         if (!version) continue;
 
         const tags = version.tags.map(t => t.tagName);
-        const textToEmbed = `Title: ${exp.title}\nDescription: ${version.promptDescription || ''}\nPrompt: ${version.promptText}`;
 
-        // Gemini API Rate Limit 방지를 위한 지연 처리
-        await sleep(500); // 0.5초 대기 (필요시 조절)
+        // 1. Generate Perspectives
+        const perspectives = await generateSearchPerspectives({
+          title: exp.title,
+          promptText: version.promptText,
+          aiModel: version.aiModel
+        });
 
-        let embedding = null;
+        // 2. Generate Embeddings (Sequential)
+        let vec_problem = null;
+        let vec_tech = null;
+        let vec_solution = null;
+
         try {
-          embedding = await getEmbedding(textToEmbed);
+          vec_problem = await getEmbedding(perspectives.problem);
+          await sleep(500);
+          vec_tech = await getEmbedding(perspectives.tech);
+          await sleep(500);
+          vec_solution = await getEmbedding(perspectives.solution);
         } catch (e) {
           console.warn(`Failed embedding for exp ${exp.id}`);
         }
 
-        if (embedding) {
+        if (vec_problem) { // At least one embedding succeeded (or check all?)
           bulkOperations.push({ index: { _index: INDEX_NAME, _id: exp.id.toString() } });
           bulkOperations.push({
             id: exp.id.toString(),
@@ -450,7 +594,14 @@ async function syncAllExperiments() {
             reproductionRate: version.reproductionRate || 0,
             tags: tags,
             createdAt: exp.createdAt,
-            embedding: embedding
+
+            text_problem: perspectives.problem,
+            text_tech: perspectives.tech,
+            text_solution: perspectives.solution,
+
+            vec_problem: vec_problem || [],
+            vec_tech: vec_tech || [],
+            vec_solution: vec_solution || []
           });
         } else {
           errorCount++;
@@ -505,7 +656,26 @@ async function resetIndex() {
             reproductionRate: { type: 'float' },
             tags: { type: 'keyword' },
             createdAt: { type: 'date' },
-            embedding: {
+
+            // New Text Fields
+            text_problem: { type: 'text' },
+            text_tech: { type: 'text' },
+            text_solution: { type: 'text' },
+
+            // New Vector Fields
+            vec_problem: {
+              type: 'dense_vector',
+              dims: 768,
+              index: true,
+              similarity: 'cosine'
+            },
+            vec_tech: {
+              type: 'dense_vector',
+              dims: 768,
+              index: true,
+              similarity: 'cosine'
+            },
+            vec_solution: {
               type: 'dense_vector',
               dims: 768,
               index: true,

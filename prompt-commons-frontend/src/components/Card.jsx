@@ -72,9 +72,16 @@ export default function Card({ experiment, onClick, className }) {
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
           {tags.slice(0, 3).map((tag, index) => (
-            <Badge key={index} variant="default" className="text-xs">
-              {tag}
-            </Badge>
+            <Link
+              key={index}
+              to={`/search?tag=${tag}`}
+              onClick={(e) => e.stopPropagation()}
+              className="hover:opacity-80 transition-opacity"
+            >
+              <Badge variant="default" className="text-xs cursor-pointer hover:bg-gray-200">
+                {tag}
+              </Badge>
+            </Link>
           ))}
           {tags.length > 3 && (
             <Badge variant="default" className="text-xs">

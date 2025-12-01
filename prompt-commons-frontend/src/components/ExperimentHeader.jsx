@@ -48,7 +48,9 @@ const ExperimentHeader = ({
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
                 {displayData.tags.map((tag) => (
-                    <Badge key={tag}>{tag}</Badge>
+                    <Link key={tag} to={`/search?tag=${tag}`} className="hover:opacity-80 transition-opacity">
+                        <Badge className="cursor-pointer hover:bg-gray-200">{tag}</Badge>
+                    </Link>
                 ))}
             </div>
         </div>

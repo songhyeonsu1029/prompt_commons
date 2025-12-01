@@ -20,6 +20,7 @@ import {
 } from '../components';
 import { useAuth } from '../contexts/AuthContext';
 import { useExperiment } from '../hooks/useExperiment';
+import { deleteExperiment } from '../services/api';
 
 const ExperimentDetailPage = () => {
   const { id } = useParams();
@@ -184,9 +185,28 @@ const ExperimentDetailPage = () => {
             </Button>
             {/* Requirement: Only visible if user is author */}
             {user && experiment.author.username === user.username && (
-              <Button variant="outline" onClick={() => setIsModalOpen(true)}>
-                Draft New Version
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => setIsModalOpen(true)}>
+                  Draft New Version
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    if (window.confirm('정말로 이 실험을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
+                      try {
+                        await deleteExperiment(id);
+                        toast.success('실험이 삭제되었습니다.');
+                        navigate('/');
+                      } catch (error) {
+                        toast.error('실험 삭제 중 오류가 발생했습니다.');
+                        console.error(error);
+                      }
+                    }
+                  }}
+                >
+                  Delete Experiment
+                </Button>
+              </>
             )}
           </div>
 

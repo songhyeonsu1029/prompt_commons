@@ -139,8 +139,8 @@ class ExperimentService {
     /**
      * 실험 검색 (Elasticsearch + Gemini Embedding)
      */
-    async searchExperiments({ query, model, rate, page = 1, limit = 20 }) {
-        if (!query || query.trim().length === 0) {
+    async searchExperiments({ query, tag, model, rate, page = 1, limit = 20 }) {
+        if ((!query || query.trim().length === 0) && !tag) {
             return {
                 data: [],
                 pagination: {
@@ -153,7 +153,8 @@ class ExperimentService {
         }
 
         const esResult = await semanticSearch({
-            query: query.trim(),
+            query: query ? query.trim() : '',
+            tag: tag,
             model: model,
             minRate: rate,
             page: page,

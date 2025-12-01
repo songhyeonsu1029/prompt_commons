@@ -102,9 +102,10 @@ export const saveExperiment = (experimentId) => {
 /**
  * 실험 검색
  */
-export const searchExperiments = ({ query = '', model = 'All', rate = 'All', page = 1, limit = 10 } = {}) => {
+export const searchExperiments = ({ query = '', tag = '', model = 'All', rate = 'All', page = 1, limit = 10 } = {}) => {
   const params = new URLSearchParams({ page, limit });
   if (query) params.append('q', query);
+  if (tag) params.append('tag', tag);
   if (model && model !== 'All') params.append('model', model);
   if (rate && rate !== 'All') params.append('rate', rate);
 
