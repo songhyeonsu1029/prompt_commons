@@ -30,7 +30,6 @@ dist-ssr
 .claude/
 test-api.mjs
 CLAUDE.MD
-prisma/
 docker-compose.yml
 
 eslint.config.js
