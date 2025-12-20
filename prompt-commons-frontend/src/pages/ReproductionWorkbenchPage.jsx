@@ -12,7 +12,6 @@ import {
     FileText,
     Clipboard,
     ClipboardCheck,
-    Wand2,
     AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -79,14 +78,7 @@ const ReproductionWorkbenchPage = () => {
         if (currentStep > 1) setCurrentStep(currentStep - 1);
     };
 
-    const handleAiAssist = () => {
-        toast.loading('AI is analyzing instructions...', { duration: 1500 });
-        setTimeout(() => {
-            toast.dismiss();
-            toast.success('AI suggestions applied!');
-            setModifiedPrompt(prev => prev + "\n\n[AI Suggestion]: Consider adding specific constraints for your context here.");
-        }, 1500);
-    };
+
 
     const handleCopy = () => {
         navigator.clipboard.writeText(modifiedPrompt).then(() => {
@@ -221,9 +213,7 @@ const ReproductionWorkbenchPage = () => {
                                 <div className="space-y-4 h-full flex flex-col">
                                     <div className="flex justify-between items-center">
                                         <h2 className="text-xl font-bold text-gray-900">Adapt Prompt</h2>
-                                        <Button variant="outline" size="sm" onClick={handleAiAssist} className="text-purple-600 border-purple-200 hover:bg-purple-50">
-                                            <Wand2 className="w-4 h-4 mr-2" /> AI Assist
-                                        </Button>
+
                                     </div>
                                     <p className="text-sm text-gray-500">Modify the prompt for your specific use case.</p>
                                     <textarea

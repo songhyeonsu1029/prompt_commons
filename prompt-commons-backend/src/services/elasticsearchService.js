@@ -37,7 +37,7 @@ async function withRetry(operation, retries = 3, delay = 1000) {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * 텍스트를 벡터로 변환 (Gemini text-embedding-004)
+ * 텍스트를 벡터로 변환 (Gemini-embedding-001)
  */
 async function getEmbedding(text) {
   return withRetry(async () => {
@@ -268,7 +268,7 @@ async function semanticSearch({ query, tag, model, minRate = 0, page = 1, limit 
 
       if (isNaturalLanguage) {
         searchMode = 'semantic';
-        MIN_SCORE = 0.55; // 자연어 검색은 조금 더 관대하게 (0.6 -> 0.55 조정)
+        MIN_SCORE = 0.55;
 
         // 3-1. AI 쿼리 분석 (Gemini로 키워드 추출 + 의도 파악)
         let queryAnalysis = await analyzeQuery(trimmedQuery);

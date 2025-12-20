@@ -24,28 +24,48 @@ exports.searchExperiments = asyncHandler(async (req, res) => {
     const model = req.query.model;
     const rate = parseInt(req.query.rate) || 0;
 
-    const result = await experimentService.searchExperiments({
-        query,
-        tag,
-        model,
-        rate,
-        page,
-        limit
-    });
-    res.json(result);
+    try {
+        const result = await experimentService.searchExperiments({
+            query,
+            tag,
+            model,
+            rate,
+            page,
+            limit
+        });
+        res.json(result);
+    } catch (error) {
+        console.warn('[Search] Elasticsearch unavailable:', error.message);
+        res.json({
+            data: [],
+            pagination: {
+                currentPage: page,
+                totalPages: 0,
+                totalResults: 0
+            },
+            message: '검색 서비스를 일시적으로 사용할 수 없습니다.'
+        });
+    }
 });
 
 exports.syncExperiments = asyncHandler(async (req, res) => {
     console.log(`[API] Sync triggered by user ${req.user.username}`);
-    const result = await experimentService.syncExperiments();
-    res.json({
-        message: 'Elasticsearch sync completed successfully.',
-        stats: {
-            total: result.totalCount,
-            synced: result.syncedCount,
-            errors: result.errorCount
-        }
-    });
+    try {
+        const result = await experimentService.syncExperiments();
+        res.json({
+            message: 'Elasticsearch sync completed successfully.',
+            stats: {
+                total: result.totalCount,
+                synced: result.syncedCount,
+                errors: result.errorCount
+            }
+        });
+    } catch (error) {
+        console.warn('[Sync] Elasticsearch unavailable:', error.message);
+        res.status(503).json({
+            message: 'Elasticsearch sync is disabled in this environment.'
+        });
+    }
 });
 
 exports.createExperiment = asyncHandler(async (req, res) => {
