@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 
 // 미들웨어 설정
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'], // 프론트엔드 주소 (Vite 기본 포트 포함)
+  origin: ['http://localhost:5173', 'http://localhost:5174','https://effortless-torte-cf69c1.netlify.app'], // 프론트엔드 주소 (Vite 기본 포트 포함)
   credentials: true // 쿠키 허용
 }));
 app.use(cookieParser());
