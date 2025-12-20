@@ -32,7 +32,7 @@ test-api.mjs
 CLAUDE.MD
 prisma/
 docker-compose.yml
-
+vercel.json
 
 eslint.config.js
 
